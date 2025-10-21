@@ -201,6 +201,18 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Claude Code
+#  Claude Code is Anthropic's official CLI for Claude AI
+#  .claude/ contains configuration, cache, and session data
+.claude/
+.claude_history
+CLAUDE.md
+AGENTS.md
+
+# GitHub Codex / Copilot
+.copilot/
+.github-copilot/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
