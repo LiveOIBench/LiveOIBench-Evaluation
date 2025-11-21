@@ -6,16 +6,20 @@ import argparse
 from typing import List, Dict, Any, Tuple
 import requests
 import tempfile
-from models import *
+import asyncio
 import re
-from evaluation.judges.problem import Problem
 from pathlib import Path
 
+from models import generate_from_chat_completion
+from model_config import get_model_config
+from code_extractor import CodeExtractor, ExtractionStats
+from judges.problem import Problem
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROBLEMS_DIR = os.environ.get("IOI_BENCH_DATA_DIR", str(REPO_ROOT / "data"))
-DEFAULT_PARSE_DIR = os.environ.get("IOI_PARSED_DIR", str(REPO_ROOT / "parsed"))
-DEFAULT_EVAL_DIR = os.environ.get("IOI_EVAL_RESOURCE_DIR", str(REPO_ROOT / "evaluation"))
-DEFAULT_PREDICTION_DIR = os.environ.get("IOI_PREDICTIONS_DIR", str(REPO_ROOT / "ioi-predictions" / "predictions"))
+DEFAULT_PROBLEMS_DIR = os.environ.get("LIVEOIBENCH_DATA_DIR")
+DEFAULT_PARSE_DIR = os.environ.get("LIVEOIBENCH_PARSE_DIR")
+DEFAULT_EVAL_DIR = os.environ.get("LIVEOIBENCH_EVAL_RESOURCE_DIR")
+DEFAULT_PREDICTION_DIR = os.environ.get("LIVEOIBENCH_PREDICTIONS_DIR")
 
 class IoIEvaluation:
     def __init__(self, model_name: str, competitions, years, rounds, tasks, task_types, problems_dir: str, 
@@ -57,16 +61,12 @@ class IoIEvaluation:
         
         # Create output directory if it doesn't exist
         os.makedirs(evaluation_dir, exist_ok=True)
-        
+
         # Results storage
         self.results = {}
-        
+
         # Tracking statistics
-        self.extraction_stats = {
-            'success': 0,
-            'failed': 0,
-            'empty': 0
-        }
+        self.extraction_stats = ExtractionStats()
     
     def load_problems(self) -> List[Dict[str, Any]]:
         """Load all problems from the problems directory."""
@@ -108,6 +108,8 @@ class IoIEvaluation:
 
                         task_dirs = []
                         for split, tasks in meta_info.items():
+                            if split != "tasks":
+                                continue
                             for task in tasks:
                                 if self.tasks and task not in self.tasks:
                                     continue
@@ -143,6 +145,8 @@ class IoIEvaluation:
                         print(f"Error processing {problems_dir}: {str(e)}")
                         continue
         print(f"Found {total_tasks} tasks to evaluate.\n")
+
+        import pdb; pdb.set_trace()
         return problems
     
     def generate_solution(self, problems, model, seeds=5) -> str:
@@ -181,16 +185,27 @@ class IoIEvaluation:
             if len(query_prompts) == 0:
                 print("No new problems to generate.")
             else:
-                if self.system_prompt:
-                    if "QwQ" in self.model_name:
-                        system_prompt = "You are a helpful and harmless assistant. You are Qwen developed by Alibaba. You should think step-by-step."
-                    elif "R1-Distill" in self.model_name:
-                        system_prompt = "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>."
-                    else:
-                        system_prompt = "You are a helpful assistant."
-                    messages_list = [[{'role': 'system', 'content': system_prompt}, {"role": "user", "content": prompt[2]}] for prompt in query_prompts]
-                else:
-                    messages_list = [[{"role": "user", "content": prompt[2]}] for prompt in query_prompts]
+                # Build messages list with optional system prompt
+                messages_list = []
+                model_config = get_model_config(self.model_name)
+
+                for prompt in query_prompts:
+                    messages = []
+
+                    # Add system prompt if requested and available in config
+                    if self.system_prompt and model_config.system_prompt:
+                        messages.append({
+                            'role': 'system',
+                            'content': model_config.system_prompt
+                        })
+
+                    # Add user prompt
+                    messages.append({
+                        "role": "user",
+                        "content": prompt[2]
+                    })
+
+                    messages_list.append(messages)
                 
                 # Generate responses with immediate raw response saving
                 responses, token_usage = asyncio.run(generate_from_chat_completion(
@@ -258,91 +273,49 @@ class IoIEvaluation:
                                 self._extract_and_save_code(task, seed, model, prediction_path, response, solutions)
                             else:
                                 print(f"Skipping {file} - not a valid response")
-                                self.extraction_stats['failed'] += 1
+                                self.extraction_stats.record('failed')
                         except Exception as e:
                             print(f"Error reparsing {file}: {e}")
-                            self.extraction_stats['failed'] += 1
+                            self.extraction_stats.record('failed')
         
         # Print extraction statistics
-        print("\nCode Extraction Statistics:")
-        print(f"  Successful extractions: {self.extraction_stats['success']}")
-        print(f"  Failed extractions: {self.extraction_stats['failed']}")
-        print(f"  Empty code blocks: {self.extraction_stats['empty']}")
-        
+        self.extraction_stats.print_summary()
+
         return solutions
     
     def _extract_and_save_code(self, task, seed, model, prediction_path, response, solutions):
         """Helper method to extract and save code from a response"""
-        # Create codes directory if it doesn't exist
-        os.makedirs(prediction_path + "/codes", exist_ok=True)
-        
         if task not in solutions:
             solutions[task] = []
-        
-        # Skip processing if response is None or doesn't have choices
-        if response is None or not hasattr(response, "choices") or len(response.choices) == 0:
+
+        # Extract content from response
+        content = CodeExtractor.extract_from_response(response)
+
+        if content is None:
+            # No valid response
+            CodeExtractor.save_code(None, prediction_path, task, model, seed)
             solutions[task].append("")
-            self.extraction_stats['failed'] += 1
-            with open(prediction_path + f"/codes/{task}_{model}_{seed}.cpp", "w") as f:
-                f.write("")
+            self.extraction_stats.record('failed')
             print(f"No valid response for {task} seed {seed}")
             return
-        
-        # Extract code from content using prioritized patterns
-        content = response.choices[0].message.content
-        try:
-            patterns = [
-                rf"```(?:{re.escape(task)}\.(?:cpp|c))\s*([\s\S]*?)```",  # 1) ```{task}.cpp|c ... ```
-                r"```(?:cpp|c)\s*([\s\S]*?)```",                           # 2) ```cpp|c ... ```
-                r"```([\s\S]*?)```",                                        # 3) ``` ... ```
-            ]
 
-            code = ""
-            found = False
-            for pattern in patterns:
-                matches = re.findall(pattern, content, re.DOTALL)
-                if matches:
-                    code = max(matches, key=lambda x: len(x.split('\n'))).strip()
-                    found = True
-                    break
+        # Extract code from content
+        code, status = CodeExtractor.extract_code(content, task)
 
-            if found:
-                if code:
-                    # Check and fix first line if it contains just "cpp" or ends with .cpp
-                    lines = code.split('\n')
-                    if len(lines) < 5:
-                        print(f"Code block too short {prediction_path}")
-                    first_line = lines[0].strip()
+        # Save the code
+        CodeExtractor.save_code(code, prediction_path, task, model, seed)
 
-                    # Check if first line is just "cpp" or contains a filename ending with .cpp
-                    if first_line.lower() == "cpp" or first_line.endswith(".cpp"):
-                        lines[0] = "// " + first_line
-                        code = '\n'.join(lines)
+        # Update solutions and stats
+        solutions[task].append(code if code else "")
+        self.extraction_stats.record(status)
 
-                    with open(prediction_path + f"/codes/{task}_{model}_{seed}.cpp", "w") as f:
-                        f.write(code)
-                    solutions[task].append(code)
-                    self.extraction_stats['success'] += 1
-                else:
-                    # Empty code block
-                    with open(prediction_path + f"/codes/{task}_{model}_{seed}.cpp", "w") as f:
-                        f.write("")
-                    solutions[task].append("")
-                    self.extraction_stats['empty'] += 1
-                    print(f"Empty code block found for {task} seed {seed}")
-            else:
-                # No code block found
-                with open(prediction_path + f"/codes/{task}_{model}_{seed}.cpp", "w") as f:
-                    f.write("")
-                solutions[task].append("")
-                self.extraction_stats['failed'] += 1
-                print(f"No code block found for {task} seed {seed}")
-        except Exception as e:
-            with open(prediction_path + f"/codes/{task}_{model}_{seed}.cpp", "w") as f:
-                f.write("")
-            print(f"Failed to extract code for {task} seed {seed}: {e}")
-            solutions[task].append("")
-            self.extraction_stats['failed'] += 1
+        # Print warnings
+        if status == 'empty':
+            print(f"Empty code block found for {task} seed {seed}")
+        elif status == 'not_found':
+            print(f"No code block found for {task} seed {seed}")
+        elif code and len(code.split('\n')) < 5:
+            print(f"Code block too short for {task} seed {seed}")
     
     def run_pipeline(self):
         """Run the complete evaluation pipeline."""

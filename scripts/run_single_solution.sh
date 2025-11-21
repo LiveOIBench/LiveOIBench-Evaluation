@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 DATA_DIR="${LIVE_OIBENCH_DATA_DIR}"
 EVAL_DIR="${LIVE_OIBENCH_EVAL_RESOURCE_DIR}"
 
-python src/evaluation/run_judge.py \
+python src/run_judge.py single \
   --competition COCI \
   --year 2024 \
   --round CONTEST_#5 \

@@ -101,7 +101,8 @@ class BaseJudge(ABC):
         save_output: bool = False,
         generate_gold_output: bool = False,
         max_workers: int = 10,
-        stop_on_failure: bool = False
+        stop_on_failure: bool = False,
+        keep_executables: bool = False
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Main entry point to judge a solution for a problem.
@@ -118,6 +119,7 @@ class BaseJudge(ABC):
             generate_gold_output: Whether to generate gold outputs
             max_workers: Number of parallel workers for test execution
             stop_on_failure: Stop subtask evaluation on first failure
+            keep_executables: Preserve compiled artifacts and work directories
 
         Returns:
             Tuple of (score_info: dict, detailed_results: list)
@@ -144,7 +146,8 @@ class BaseJudge(ABC):
             save_output=save_output,
             generate_gold_output=generate_gold_output,
             max_workers=max_workers,
-            stop_on_failure=stop_on_failure
+            stop_on_failure=stop_on_failure,
+            keep_executables=keep_executables
         )
 
         # Interpret results

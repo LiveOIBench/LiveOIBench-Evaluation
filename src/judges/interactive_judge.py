@@ -372,7 +372,8 @@ class InteractiveJudge(BaseJudge):
         generate_gold_output: bool = False,
         max_workers: int = 10,
         stop_on_failure: bool = False,
-        problem: Problem = None
+        problem: Problem = None,
+        keep_executables: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Run all test cases for an interactive problem.
@@ -468,11 +469,12 @@ class InteractiveJudge(BaseJudge):
 
             return results
         finally:
-            # Clean up all worker directories
-            for worker_dir in worker_dirs:
-                shutil.rmtree(worker_dir, ignore_errors=True)
-            if verbose:
-                print(f"Cleaned up {len(worker_dirs)} worker directories")
+            if not keep_executables:
+                # Clean up all worker directories
+                for worker_dir in worker_dirs:
+                    shutil.rmtree(worker_dir, ignore_errors=True)
+                if verbose:
+                    print(f"Cleaned up {len(worker_dirs)} worker directories")
 
     def _create_worker_directories(self, work_dir: str, max_workers: int, verbose: bool) -> List[str]:
         """
@@ -614,7 +616,8 @@ class InteractiveJudge(BaseJudge):
         save_output: bool = False,
         generate_gold_output: bool = False,
         max_workers: int = 10,
-        stop_on_failure: bool = False
+        stop_on_failure: bool = False,
+        keep_executables: bool = False
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Judge a solution for an interactive problem.
@@ -629,6 +632,7 @@ class InteractiveJudge(BaseJudge):
             generate_gold_output: Unused for interactive
             max_workers: Number of parallel workers
             stop_on_failure: Stop subtask on first failure
+            keep_executables: Preserve compiled artifacts and worker directories
 
         Returns:
             Tuple of (score_info, detailed_results)
@@ -649,7 +653,7 @@ class InteractiveJudge(BaseJudge):
             interactor_file, work_dir, solution_file,
             verbose=verbose, save_output=save_output, generate_gold_output=generate_gold_output,
             max_workers=max_workers, stop_on_failure=stop_on_failure,
-            problem=problem  # Pass problem explicitly
+            problem=problem, keep_executables=keep_executables  # Pass problem explicitly
         )
 
         # Interpret results

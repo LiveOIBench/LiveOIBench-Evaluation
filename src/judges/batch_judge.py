@@ -64,7 +64,7 @@ class BatchJudge(BaseJudge):
                      checker_file, checker_executable_path)
         """
         grader, header = problem.get_grader()
-        base_name = os.path.basename(solution_file).replace(".cpp", "")
+        base_name = Path(solution_file).stem
         solution_folder = os.path.join(self.cpp_executable_path, problem.id, base_name)
 
         if not os.path.exists(solution_folder):
@@ -82,7 +82,13 @@ class BatchJudge(BaseJudge):
         # Copy solution file
         os.system(f"cp {solution_file} {solution_folder}")
         new_solution_file = os.path.join(solution_folder, os.path.basename(solution_file))
-        executable_path = os.path.join(solution_folder, os.path.basename(solution_file).replace(".cpp", ""))
+        language = self._detect_language(new_solution_file)
+        if language == "cpp":
+            executable_path = os.path.join(solution_folder, base_name)
+        elif language == "java":
+            executable_path = os.path.join(solution_folder, f"{base_name}.class")
+        else:
+            executable_path = new_solution_file
 
         # Get checker from the problem
         checker, checker_headers = problem.get_checker()
@@ -126,10 +132,19 @@ class BatchJudge(BaseJudge):
         Returns:
             Tuple of (success, message)
         """
-        # Compile solution
-        status, output = self.compile_cpp(solution_file, grader_file, executable_path, verbose)
+        language = self._detect_language(solution_file)
+
+        if language == "cpp":
+            status, output = self.compile_cpp(solution_file, grader_file, executable_path, verbose)
+        elif language == "python":
+            status, output = True, "Python does not require compilation"
+        elif language == "java":
+            status, output = self._compile_java(solution_file, solution_folder, verbose)
+        else:
+            return (False, f"Unsupported language: {language}")
+
         if not status:
-            return (False, output)
+            return False, output
 
         # Compile checker if available
         if checker_file is not None:
@@ -138,6 +153,53 @@ class BatchJudge(BaseJudge):
                 return (False, output)
 
         return (True, "Compilation successful")
+
+    def _compile_java(self, solution_file: str, solution_folder: str, verbose: bool = False) -> Tuple[bool, str]:
+        """Compile a Java solution file to bytecode."""
+        compile_command = ["javac", "-d", solution_folder, solution_file]
+
+        if verbose:
+            print("Compiling Java with command:", " ".join(compile_command))
+
+        try:
+            result = subprocess.run(
+                compile_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            if verbose and result.stdout:
+                print("Java compiler output:", result.stdout)
+            return True, result.stdout
+        except subprocess.CalledProcessError as e:
+            if verbose:
+                print("Java compilation failed!")
+                print("Compiler output:", e.stdout)
+                print("Compiler errors:", e.stderr)
+            return False, e.stderr
+
+    @staticmethod
+    def _detect_language(solution_file: str) -> str:
+        """Infer language from solution file extension."""
+        suffix = Path(solution_file).suffix.lower()
+        if suffix == ".cpp":
+            return "cpp"
+        if suffix == ".py":
+            return "python"
+        if suffix in (".java", ".class"):
+            return "java"
+        return "cpp"
+
+    def _build_execution_command(self, language: str, executable_path: str) -> List[str]:
+        """Build the execution command for the given language."""
+        if language == "python":
+            return ["python3", executable_path]
+        if language == "java":
+            class_dir = os.path.dirname(executable_path) or "."
+            class_name = Path(executable_path).stem
+            return ["java", "-cp", class_dir, class_name]
+        return [executable_path]
 
     def run_test_case(
         self,
@@ -150,7 +212,8 @@ class BatchJudge(BaseJudge):
         verbose: bool = False,
         save_output: bool = False,
         generate_gold_output: bool = False,
-        checker_executable: str = None
+        checker_executable: str = None,
+        language: str = None
     ) -> Dict[str, Any]:
         """
         Run a single test case and check correctness.
@@ -171,7 +234,7 @@ class BatchJudge(BaseJudge):
             Dictionary with test result including: test_case, correct, cpu_time, memory, exit_code, etc.
         """
         base_name = os.path.basename(input_file).replace(".in", "")
-        solution_name = os.path.basename(cpp_executable)
+        solution_name = Path(cpp_executable).stem
         output_file = os.path.join(self.evaluation_path, "outputs", problem.id, solution_name, f"{base_name}.out")
 
         if not os.path.exists(os.path.dirname(output_file)):
@@ -185,9 +248,12 @@ class BatchJudge(BaseJudge):
         with open(input_file, "r") as f:
             input_data = f.read()
 
+        language = language or self._detect_language(cpp_executable)
+        execution_command = self._build_execution_command(language, cpp_executable)
+
         # Launch the solution with resource limits
         process = subprocess.Popen(
-            [cpp_executable],
+            execution_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -450,7 +516,8 @@ class BatchJudge(BaseJudge):
         save_output: bool = False,
         generate_gold_output: bool = False,
         max_workers: int = 10,
-        stop_on_failure: bool = False
+        stop_on_failure: bool = False,
+        keep_executables: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Run all test cases for a problem.
@@ -483,6 +550,7 @@ class BatchJudge(BaseJudge):
 
         cpu_time_limit = problem.get_time_limit()
         memory_limit_mb = problem.get_memory_limit()
+        language = self._detect_language(solution_file)
         results = []
 
         if stop_on_failure:
@@ -490,7 +558,7 @@ class BatchJudge(BaseJudge):
             results = self._evaluate_with_early_stopping(
                 problem, executable_path, checker_executable_path,
                 input_files, output_files, cpu_time_limit, memory_limit_mb,
-                verbose, save_output, generate_gold_output
+                verbose, save_output, generate_gold_output, language
             )
         else:
             # Parallel evaluation
@@ -504,13 +572,15 @@ class BatchJudge(BaseJudge):
                     lambda f: self.run_test_case(
                         problem, executable_path, f[0], f[1],
                         cpu_time_limit, memory_limit_mb,
-                        verbose, save_output, generate_gold_output, checker_executable_path
+                        verbose, save_output, generate_gold_output, checker_executable_path,
+                        language=language
                     ),
                     test_cases
                 ))
 
         # Cleanup
-        os.system(f"rm -rf {solution_folder}")
+        if not keep_executables:
+            os.system(f"rm -rf {solution_folder}")
 
         if verbose:
             print("\n=== Batch Evaluation Summary ===")
@@ -533,7 +603,8 @@ class BatchJudge(BaseJudge):
         memory_limit_mb: float,
         verbose: bool,
         save_output: bool,
-        generate_gold_output: bool
+        generate_gold_output: bool,
+        language: str
     ) -> List[Dict[str, Any]]:
         """
         Evaluate test cases with early stopping per subtask.
@@ -594,7 +665,8 @@ class BatchJudge(BaseJudge):
                 result = self.run_test_case(
                     problem, executable_path, input_file, output_file,
                     cpu_time_limit, memory_limit_mb, verbose,
-                    save_output, generate_gold_output, checker_executable_path
+                    save_output, generate_gold_output, checker_executable_path,
+                    language=language
                 )
                 results.append(result)
                 results_dict[test_case] = result

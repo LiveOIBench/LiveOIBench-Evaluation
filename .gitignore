@@ -208,6 +208,8 @@ cython_debug/
 .claude_history
 CLAUDE.md
 AGENTS.md
+DOCS.md
+PLAN.md
 
 # GitHub Codex / Copilot
 .copilot/
@@ -217,3 +219,5 @@ AGENTS.md
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+src/deprecated/
+src/testing/

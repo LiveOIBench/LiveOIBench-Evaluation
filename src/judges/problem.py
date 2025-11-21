@@ -20,8 +20,9 @@ class Problem:
         self.statements_dir = os.path.join(problem_dir, "statements")
         self.parse_dir = parse_dir
         self.checker = os.path.join(problem_dir, "checkers")
-        #Load subtasks
-        with open(os.path.join(problem_dir, "subtasks.json")) as f:
+        # Load subtasks when available (IOI-Bench-Restructured only)
+        subtasks_path = os.path.join(problem_dir, "subtasks.json")
+        with open(subtasks_path) as f:
             self.subtasks = json.load(f)
         #Load problem config
         with open(os.path.join(problem_dir, "problem.json")) as f:

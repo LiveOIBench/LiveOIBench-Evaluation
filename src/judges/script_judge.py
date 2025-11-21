@@ -235,7 +235,8 @@ class ScriptJudge(BaseJudge):
         save_output: bool = False,
         generate_gold_output: bool = False,
         max_workers: int = 10,
-        stop_on_failure: bool = False
+        stop_on_failure: bool = False,
+        keep_executables: bool = False
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Run evaluation using setup.sh + evaluate.sh scripts.
@@ -396,12 +397,13 @@ class ScriptJudge(BaseJudge):
 
             return results
         finally:
-            # Clean up all directories
-            shutil.rmtree(prep_dir, ignore_errors=True)
-            for worker_dir in worker_dirs:
-                shutil.rmtree(worker_dir, ignore_errors=True)
-            if verbose:
-                print(f"Cleaned up preparation directory and {len(worker_dirs)} worker directories")
+            if not keep_executables:
+                # Clean up all directories
+                shutil.rmtree(prep_dir, ignore_errors=True)
+                for worker_dir in worker_dirs:
+                    shutil.rmtree(worker_dir, ignore_errors=True)
+                if verbose:
+                    print(f"Cleaned up preparation directory and {len(worker_dirs)} worker directories")
 
     def _create_worker_directories(
         self,
@@ -529,7 +531,8 @@ class ScriptJudge(BaseJudge):
         save_output: bool = False,
         generate_gold_output: bool = False,
         max_workers: int = 10,
-        stop_on_failure: bool = False
+        stop_on_failure: bool = False,
+        keep_executables: bool = False
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Judge a solution for a script-based problem.
@@ -559,7 +562,8 @@ class ScriptJudge(BaseJudge):
             solution_file, work_dir,
             problem=problem, verbose=verbose, save_output=save_output,
             generate_gold_output=generate_gold_output,
-            max_workers=max_workers, stop_on_failure=stop_on_failure
+            max_workers=max_workers, stop_on_failure=stop_on_failure,
+            keep_executables=keep_executables
         )
 
         if results is None:
