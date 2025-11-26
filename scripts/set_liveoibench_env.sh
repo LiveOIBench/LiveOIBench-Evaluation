@@ -2,7 +2,7 @@
 export LIVEOIBENCH_DATA_DIR="/data2/kai/LiveOIBench/data"
 export LIVEOIBENCH_PARSE_DIR="/data2/kai/LiveOIBench/data"
 export LIVEOIBENCH_EVAL_RESOURCE_DIR="/data2/kai/LiveOIBench"
-export LIVEOIBENCH_PREDICTIONS_DIR="/data2/kai/IOI-Evaluation/ioi-predictions/predictions"
+export LIVEOIBENCH_PREDICTIONS_DIR="/data2/kai/IOI-Evaluation/ioi-predictions/old"
 export LIVEOIBENCH_RESULTS_DIR="/data2/kai/LiveOIBench/evaluation/submission_results"
 export TESTLIB_PATH="/data2/kai/IOI-Evaluation/evaluation/testlib.h"
 

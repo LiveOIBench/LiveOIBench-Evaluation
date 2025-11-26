@@ -19,10 +19,10 @@ if [[ ! -d "${LLM_SOLUTIONS_DIR}" ]]; then
 fi
 
 RUN_TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
-RESULTS_JSON="${RESULTS_DIR}/${MODEL_NAME}_${RUN_TIMESTAMP}.json"
+RESULTS_JSON="${RESULTS_DIR}/${MODEL_NAME}/${MODEL_NAME}_${RUN_TIMESTAMP}.json"
 
 python src/run_judge.py batch \
-  --competitions IOI BOI CEOI CCO COCI EGOI EJOI IATI OOI USACO RMI APIO JOI NOINordic \
+  --competitions USACO \
   --years 2023-2025 \
   --llm_models "${MODEL_NAME}" \
   --solution_types llm \
@@ -32,6 +32,6 @@ python src/run_judge.py batch \
   --output_dir "${RESULTS_DIR}" \
   --cache_dir "${CACHE_DIR}" \
   --stop_on_failure \
-  --workers 1 \
-  --max_solutions 8 \
-  --results_file "${RESULTS_JSON}"
+  --workers 6 \
+  --max_solutions 8
+#IOI BOI CEOI CCO COCI EGOI EJOI IATI OOI USACO RMI APIO JOI NOINordic

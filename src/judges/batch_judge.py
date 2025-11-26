@@ -64,7 +64,14 @@ class BatchJudge(BaseJudge):
                      checker_file, checker_executable_path)
         """
         grader, header = problem.get_grader()
+        language = self._detect_language(solution_file)
+
         base_name = Path(solution_file).stem
+        if language == "java":
+            maybe_class = self._extract_java_public_class(solution_file)
+            if maybe_class:
+                base_name = maybe_class
+
         solution_folder = os.path.join(self.cpp_executable_path, problem.id, base_name)
 
         if not os.path.exists(solution_folder):
@@ -83,6 +90,14 @@ class BatchJudge(BaseJudge):
         os.system(f"cp {solution_file} {solution_folder}")
         new_solution_file = os.path.join(solution_folder, os.path.basename(solution_file))
         language = self._detect_language(new_solution_file)
+
+        if language == "java":
+            class_name = self._extract_java_public_class(new_solution_file)
+            if class_name and class_name != Path(new_solution_file).stem:
+                renamed_path = os.path.join(solution_folder, f"{class_name}.java")
+                os.rename(new_solution_file, renamed_path)
+                new_solution_file = renamed_path
+                base_name = class_name
         if language == "cpp":
             executable_path = os.path.join(solution_folder, base_name)
         elif language == "java":
@@ -191,14 +206,33 @@ class BatchJudge(BaseJudge):
             return "java"
         return "cpp"
 
-    def _build_execution_command(self, language: str, executable_path: str) -> List[str]:
+    @staticmethod
+    def _extract_java_public_class(solution_file: str) -> str:
+        """Extract the public class name from a Java source file, if present."""
+        try:
+            with open(solution_file, "r") as src:
+                content = src.read()
+        except OSError:
+            return None
+        match = re.search(r"public\s+class\s+([A-Za-z_][A-Za-z0-9_]*)", content)
+        if match:
+            return match.group(1)
+        return None
+
+    def _build_execution_command(self, language: str, executable_path: str, memory_limit_mb: float = None) -> List[str]:
         """Build the execution command for the given language."""
         if language == "python":
             return ["python3", executable_path]
         if language == "java":
             class_dir = os.path.dirname(executable_path) or "."
             class_name = Path(executable_path).stem
-            return ["java", "-cp", class_dir, class_name]
+            java_cmd = ["java"]
+            if memory_limit_mb:
+                # Keep JVM memory below RLIMIT_AS to avoid startup failures.
+                heap_size = max(64, int(memory_limit_mb * 0.6))
+                java_cmd.extend(["-Xms64m", f"-Xmx{heap_size}m", "-XX:ReservedCodeCacheSize=64m"])
+            java_cmd.extend(["-cp", class_dir, class_name])
+            return java_cmd
         return [executable_path]
 
     def run_test_case(
@@ -249,18 +283,22 @@ class BatchJudge(BaseJudge):
             input_data = f.read()
 
         language = language or self._detect_language(cpp_executable)
-        execution_command = self._build_execution_command(language, cpp_executable)
+        execution_command = self._build_execution_command(language, cpp_executable, memory_limit_mb)
 
         # Launch the solution with resource limits
+        preexec = None
+        if language != "java":
+            preexec = lambda: set_limits(
+                int(math.ceil(cpu_time_limit)),
+                int(math.ceil(memory_limit_mb * 1024 * 1024))
+            )
+
         process = subprocess.Popen(
             execution_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            preexec_fn=lambda: set_limits(
-                int(math.ceil(cpu_time_limit)),
-                int(math.ceil(memory_limit_mb * 1024 * 1024))
-            )
+            preexec_fn=preexec
         )
 
         # Monitor process resources

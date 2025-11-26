@@ -17,6 +17,7 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -157,6 +158,21 @@ def discover_problems(args: argparse.Namespace) -> List[Dict[str, Any]]:
     return problems
 
 
+SUPPORTED_EXTENSIONS = {".cpp", ".py", ".java"}
+
+
+def _extract_seed(filename: str, default: int = 0) -> int:
+    """Extract trailing integer seed from filenames like name_<seed>.<ext>."""
+    stem = Path(filename).stem
+    parts = stem.split("_")
+    if not parts:
+        return default
+    try:
+        return int(parts[-1])
+    except ValueError:
+        return default
+
+
 def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args: argparse.Namespace) -> List[Dict[str, str]]:
     prob = Problem(
         problem_info["dir"],
@@ -183,12 +199,9 @@ def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args
             if not os.path.isdir(model_dir):
                 continue
             for filename in os.listdir(model_dir):
-                if not filename.endswith(".cpp"):
+                if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
                     continue
-                try:
-                    seed = int(filename.split("_")[-1].replace(".cpp", ""))
-                except ValueError:
-                    seed = 0
+                seed = _extract_seed(filename)
                 if seed >= args.max_solutions:
                     continue
                 solutions.append(
@@ -200,8 +213,12 @@ def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args
                 )
         return solutions
 
-    for path in prob.get_code_solution("cpp", solution_type):
-        solutions.append({"path": path, "model": "original", "name": os.path.basename(path)})
+    for lang in ("cpp", "py", "java"):
+        for path in prob.get_code_solution(lang, solution_type):
+            solutions.append({"path": path, "model": "original", "name": os.path.basename(path)})
+            if len(solutions) >= args.max_solutions:
+                return solutions[: args.max_solutions]
+    
     return solutions[: args.max_solutions]
 
 
