@@ -517,7 +517,7 @@ def calculate_percentile(model_score: float, human_scores: np.ndarray) -> Option
 def calculate_codeforces_rating(model_rank: int, ranked_ratings: pd.Series) -> Optional[float]:
     if ranked_ratings.empty:
         return None
-    left = 0.0
+    left = 500.0  # Minimum realistic Codeforces rating
     right = float(ranked_ratings.max() + 100)
     ratings = ranked_ratings.to_numpy()
     # Binary search for Elo value with Codeforces seed model
