@@ -24,15 +24,15 @@ import numpy as np
 import pandas as pd
 
 
-DEFAULT_MODEL_RESULTS = "/data2/kai/LiveOIBench/results/gpt-5_20251031T161818Z.json"
-DEFAULT_CONTESTANT_PARQUET = (
-    "/data2/kai/huggingface/LiveOIBench_contestants/data/contest_results.parquet"
+DEFAULT_MODEL_RESULTS = os.getenv("LIVEOIBENCH_MODEL_RESULTS", "./results/model_results.json")
+DEFAULT_CONTESTANT_PARQUET = os.getenv(
+    "LIVEOIBENCH_CONTESTANT_PARQUET", "./data/contest_results.parquet"
 )
-DEFAULT_PROBLEMS_PARQUET = (
-    "/data2/kai/huggingface/LiveOIBench/data/liveoibench_v1.parquet"
+DEFAULT_PROBLEMS_PARQUET = os.getenv(
+    "LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet"
 )
-DEFAULT_OUTPUT_DIR = "/data2/kai/LiveOIBench/model_rankings"
-USACO_INFO_ROOT = "/data2/kai/IOI-Bench-Restructured/USACO"
+DEFAULT_OUTPUT_DIR = os.getenv("LIVEOIBENCH_OUTPUT_DIR", "./model_rankings")
+USACO_INFO_ROOT = os.getenv("LIVEOIBENCH_USACO_INFO_ROOT", "./data/USACO")
 
 # Columns that should never be treated as task scores when parsing human results.
 NON_TASK_COLUMNS = {

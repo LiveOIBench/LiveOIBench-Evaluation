@@ -146,7 +146,6 @@ class IoIEvaluation:
                         continue
         print(f"Found {total_tasks} tasks to evaluate.\n")
 
-        import pdb; pdb.set_trace()
         return problems
     
     def generate_solution(self, problems, model, seeds=5) -> str:

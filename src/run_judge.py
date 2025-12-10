@@ -12,9 +12,11 @@ can produce CSV summaries independently.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -160,6 +162,72 @@ def discover_problems(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
 SUPPORTED_EXTENSIONS = {".cpp", ".py", ".java"}
 
+# Global cache for JSON solutions: model -> {problem_id: {filename: code}}
+_JSON_SOLUTIONS_CACHE: Dict[str, Dict[str, Dict[str, str]]] = {}
+
+
+def load_llm_json_solutions(json_dir: str, models: List[str]) -> Dict[str, Dict[str, Dict[str, str]]]:
+    """Load LLM solutions from JSON files into cache.
+
+    JSON file structure: {problem_id: {filename: code_content}}
+    Example: {"APIO-2023-contest-abc": {"abc_model_0.cpp": "code..."}}
+    """
+    global _JSON_SOLUTIONS_CACHE
+
+    for model in models:
+        if model in _JSON_SOLUTIONS_CACHE:
+            continue
+
+        json_file = os.path.join(json_dir, model, f"{model}_code.json")
+        if not os.path.exists(json_file):
+            print(f"Warning: JSON file not found for model {model}: {json_file}", file=sys.stderr)
+            _JSON_SOLUTIONS_CACHE[model] = {}
+            continue
+
+        try:
+            with open(json_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            _JSON_SOLUTIONS_CACHE[model] = data
+            print(f"Loaded {len(data)} problems from {json_file}")
+        except (json.JSONDecodeError, IOError) as exc:
+            print(f"Warning: Failed to load JSON for model {model}: {exc}", file=sys.stderr)
+            _JSON_SOLUTIONS_CACHE[model] = {}
+
+    return _JSON_SOLUTIONS_CACHE
+
+
+def get_solution_files_from_json(
+    problem_info: Mapping[str, str],
+    args: argparse.Namespace,
+) -> List[Dict[str, Any]]:
+    """Get solution files from JSON cache for a specific problem.
+
+    Returns list of dicts with: model, name, code (in-memory content).
+    """
+    solutions: List[Dict[str, Any]] = []
+    problem_id = problem_info["id"]
+
+    if not args.llm_models:
+        raise ValueError("--llm_models is required when evaluating LLM solutions")
+
+    for model in args.llm_models:
+        model_data = _JSON_SOLUTIONS_CACHE.get(model, {})
+        problem_solutions = model_data.get(problem_id, {})
+
+        for filename, code_content in problem_solutions.items():
+            if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
+                continue
+            seed = _extract_seed(filename)
+            if seed >= args.max_solutions:
+                continue
+            solutions.append({
+                "model": model,
+                "name": filename,
+                "code": code_content,  # In-memory code content
+            })
+
+    return solutions
+
 
 def _extract_seed(filename: str, default: int = 0) -> int:
     """Extract trailing integer seed from filenames like name_<seed>.<ext>."""
@@ -173,7 +241,13 @@ def _extract_seed(filename: str, default: int = 0) -> int:
         return default
 
 
-def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args: argparse.Namespace) -> List[Dict[str, str]]:
+def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Get solution files for a problem.
+
+    For LLM solutions, supports two modes:
+    - JSON mode: --llm_json_dir (solutions stored in {model}/{model}_code.json)
+    - Directory mode: --llm_solutions_dir (solutions in directory tree)
+    """
     prob = Problem(
         problem_info["dir"],
         problem_info["task"],
@@ -182,10 +256,20 @@ def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args
         problem_info["round"],
         problem_info["split"],
     )
-    solutions: List[Dict[str, str]] = []
+    solutions: List[Dict[str, Any]] = []
+
     if solution_type == "llm":
         if not args.llm_models:
             raise ValueError("--llm_models is required when evaluating LLM solutions")
+
+        # Use JSON mode if llm_json_dir is specified
+        if getattr(args, "llm_json_dir", None):
+            return get_solution_files_from_json(problem_info, args)
+
+        # Otherwise use directory mode
+        if not getattr(args, "llm_solutions_dir", None):
+            raise ValueError("--llm_solutions_dir or --llm_json_dir is required when evaluating LLM solutions")
+
         for model in args.llm_models:
             model_dir = os.path.join(
                 args.llm_solutions_dir,
@@ -218,15 +302,23 @@ def get_solution_files(problem_info: Mapping[str, str], solution_type: str, args
             solutions.append({"path": path, "model": "original", "name": os.path.basename(path)})
             if len(solutions) >= args.max_solutions:
                 return solutions[: args.max_solutions]
-    
+
     return solutions[: args.max_solutions]
 
 
-def get_cache_key(problem_id: str, solution_path: str) -> str:
-    import hashlib
+def get_cache_key(problem_id: str, solution_path_or_code: str, is_code: bool = False) -> str:
+    """Generate cache key from problem ID and solution content.
 
-    with open(solution_path, "rb") as handle:
-        digest = hashlib.md5(handle.read()).hexdigest()
+    Args:
+        problem_id: The problem identifier
+        solution_path_or_code: Either a file path or code content string
+        is_code: If True, solution_path_or_code is code content, not a path
+    """
+    if is_code:
+        digest = hashlib.md5(solution_path_or_code.encode("utf-8")).hexdigest()
+    else:
+        with open(solution_path_or_code, "rb") as handle:
+            digest = hashlib.md5(handle.read()).hexdigest()
     return f"{problem_id}_{digest}"
 
 
@@ -254,6 +346,10 @@ def evaluate_solution(
     args: argparse.Namespace,
     total: int,
 ) -> Dict[str, Any]:
+    """Evaluate a single solution.
+
+    Supports both file-based solutions (with 'path') and in-memory solutions (with 'code').
+    """
     global global_counter
     with counter_lock:
         global_counter += 1
@@ -267,7 +363,14 @@ def evaluate_solution(
         f"[{counter_value}/{total}] {problem_info['competition']} {problem_info['year']} "
         f"{problem_info['round']} | Task: {problem_info['task']} | Solution: {sol_filename} | Model: {model_name}"
     )
-    cache_key = get_cache_key(pid, solution_info["path"])
+
+    # Handle in-memory code vs file path
+    is_in_memory = "code" in solution_info
+    if is_in_memory:
+        cache_key = get_cache_key(pid, solution_info["code"], is_code=True)
+    else:
+        cache_key = get_cache_key(pid, solution_info["path"], is_code=False)
+
     if args.use_cache and not args.reeval:
         cached = get_cached_result(cache_key, args.cache_dir)
         if cached:
@@ -277,7 +380,18 @@ def evaluate_solution(
             )
             return cached
 
+    temp_file_path = None
     try:
+        # If in-memory code, write to temp file
+        if is_in_memory:
+            suffix = Path(sol_filename).suffix or ".cpp"
+            with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False, encoding="utf-8") as tmp:
+                tmp.write(solution_info["code"])
+                temp_file_path = tmp.name
+            solution_path = temp_file_path
+        else:
+            solution_path = solution_info["path"]
+
         problem = Problem(
             problem_info["dir"],
             problem_info["task"],
@@ -288,7 +402,7 @@ def evaluate_solution(
         )
         score_info, details = judge.judge(
             problem,
-            solution_info["path"],
+            solution_path,
             verbose=args.verbose,
             save_output=args.save_output,
             generate_gold_output=False,
@@ -338,6 +452,13 @@ def evaluate_solution(
         }
         print("  → Result: UNKNOWN | Score: 0 | Tests: 0.00%")
         return fallback
+    finally:
+        # Clean up temp file if created
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                pass
 
 
 def print_problem_summaries(results: Mapping[str, List[Mapping[str, Any]]], ps_map: Mapping[str, Any]) -> None:
@@ -492,8 +613,10 @@ def write_per_model_result_files(
                 existing = problem_bucket.get(solution_name)
                 if existing is None:
                     problem_bucket[solution_name] = trimmed_entry
-                elif existing != trimmed_entry:
-                    raise ValueError(f"Conflicting results for submission key '{key}'")
+                # elif existing != trimmed_entry:
+                #     print(key)
+                #     continue
+                #     raise ValueError(f"Conflicting results for submission key '{key}'")
     models = sorted(per_model_submissions.keys())
     for model in models:
         if model not in llm_models:
@@ -528,10 +651,19 @@ def run_batch(args: argparse.Namespace) -> None:
     global_counter = 0
     args.solution_types = normalize_solution_types(args.solution_types)
     args.years = expand_years(args.years, args.competitions, args.data_dir)
-    args.llm_models = resolve_llm_models(args.llm_models, args.llm_solutions_dir)
 
-    if "llm" in args.solution_types and not args.llm_solutions_dir:
-        raise ValueError("--llm_solutions_dir is required when evaluating llm solutions")
+    # Resolve LLM models - can use either llm_solutions_dir or llm_json_dir
+    llm_source_dir = getattr(args, "llm_json_dir", None) or getattr(args, "llm_solutions_dir", None)
+    args.llm_models = resolve_llm_models(args.llm_models, llm_source_dir)
+
+    # Validate LLM solution source is provided when evaluating LLM solutions
+    if "llm" in args.solution_types:
+        if not getattr(args, "llm_solutions_dir", None) and not getattr(args, "llm_json_dir", None):
+            raise ValueError("--llm_solutions_dir or --llm_json_dir is required when evaluating llm solutions")
+
+    # Load JSON solutions if using JSON mode
+    if getattr(args, "llm_json_dir", None) and args.llm_models:
+        load_llm_json_solutions(args.llm_json_dir, args.llm_models)
 
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.cache_dir, exist_ok=True)
@@ -554,11 +686,18 @@ def run_batch(args: argparse.Namespace) -> None:
             print(f"Warning: No solutions found for {problem['id']}")
             continue
         for sol in solutions:
-            try:
-                if os.path.getsize(sol["path"]) == 0:
+            # Handle both file-based and in-memory solutions
+            if "code" in sol:
+                # In-memory solution from JSON - check if code is non-empty
+                if not sol["code"] or not sol["code"].strip():
                     continue
-            except OSError:
-                continue
+            else:
+                # File-based solution - check file exists and is non-empty
+                try:
+                    if os.path.getsize(sol["path"]) == 0:
+                        continue
+                except OSError:
+                    continue
             all_solutions.append((problem, sol))
             total += 1
 
@@ -631,7 +770,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     batch.add_argument("--task_types", nargs="+", default=None, help="Filter by task types")
     batch.add_argument("--solution_types", nargs="+", required=True, help="Solution categories to evaluate")
     batch.add_argument("--llm_models", nargs="+", default=None, help="LLM model names (or 'all')")
-    batch.add_argument("--llm_solutions_dir", type=str, help="Directory containing generated LLM solutions")
+    batch.add_argument("--llm_solutions_dir", type=str, help="Directory containing generated LLM solutions (directory mode)")
+    batch.add_argument("--llm_json_dir", type=str, help="Directory containing LLM solution JSON files (JSON mode: {model}/{model}_code.json)")
     batch.add_argument("--workers", type=int, default=6, help="Thread pool size")
     batch.add_argument("--verbose", action="store_true", help="Verbose judging output")
     batch.add_argument("--stop_on_failure", action="store_true", help="Stop evaluation on first failing test")

@@ -35,10 +35,10 @@ DEFAULT_SUBMISSION_RESULTS_DIR = os.getenv("LIVEOIBENCH_SUBMISSION_RESULTS_DIR",
 DEFAULT_PROBLEM_RESULTS_DIR = os.getenv("LIVEOIBENCH_PROBLEM_RESULTS_DIR", "./evaluation/problem_results")
 DEFAULT_CONTEST_RESULTS_DIR = os.getenv("LIVEOIBENCH_CONTEST_RESULTS_DIR", "./evaluation/contest_results")
 DEFAULT_FINAL_RESULTS_FILE = os.getenv("LIVEOIBENCH_FINAL_RESULTS", "./evaluation/final_results.csv")
-DEFAULT_CONTESTANT_PARQUET = "/data2/kai/huggingface/LiveOIBench_contestants/data/contest_results.parquet"
-DEFAULT_PROBLEMS_PARQUET = "/data2/kai/huggingface/LiveOIBench/data/liveoibench_v1.parquet"
+DEFAULT_CONTESTANT_PARQUET = os.getenv("LIVEOIBENCH_CONTESTANT_PARQUET", "./data/contest_results.parquet")
+DEFAULT_PROBLEMS_PARQUET = os.getenv("LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet")
 
-USACO_INFO_ROOT = "/data2/kai/IOI-Bench-Restructured/USACO"
+USACO_INFO_ROOT = os.getenv("LIVEOIBENCH_USACO_INFO_ROOT", "./data/USACO")
 
 # Columns that should never be treated as task scores when parsing human results
 NON_TASK_COLUMNS = {

@@ -1,0 +1,24 @@
+# Core dependencies for LiveOIBench-Evaluation
+
+# LLM API client
+openai>=1.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=12.0.0
+
+# HuggingFace integration
+huggingface-hub>=0.16.0
+
+# Process monitoring
+psutil>=5.9.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Retry logic
+backoff>=2.2.0
+
+# HTTP requests
+requests>=2.31.0

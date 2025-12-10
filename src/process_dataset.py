@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Rebuild an IOI-Bench style directory tree in /data2/kai/LiveOIBench/data by combining
-metadata from the liveoibench_v1 parquet (statements, graders, attachments, etc.)
-with the HuggingFace test-case parquet shards. This script can be used to run only
+Rebuild an IOI-Bench style directory tree by combining metadata from the
+liveoibench_v1 parquet (statements, graders, attachments, etc.) with the
+HuggingFace test-case parquet shards. This script can be used to run only
 one stage (metadata or tests) or both sequentially for a full reconstruction.
 
-The test-case dataset (see `ioi-evaluation/hf_dataset/create_testcases_dataset.py`)
-stores each test's full stdin/stdout contents inside the `tests` JSON column. We
-replay those blobs into `.in` / `.out` files so judges can execute submissions.
+The test-case dataset stores each test's full stdin/stdout contents inside
+the `tests` JSON column. We replay those blobs into `.in` / `.out` files so
+judges can execute submissions.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -27,8 +28,8 @@ from huggingface_hub import HfApi, hf_hub_download
 
 
 DEFAULT_REPO_ID = "LiveOIBench/LiveOIBench_tests"
-DEFAULT_DATA_CACHE = "/data2/kai/huggingface/LiveOIBench_tests"
-DEFAULT_METADATA_PARQUET = "/data2/kai/huggingface/LiveOIBench/data/liveoibench_v1.parquet"
+DEFAULT_DATA_CACHE = os.getenv("LIVEOIBENCH_DATA_CACHE", "./data/LiveOIBench_tests")
+DEFAULT_METADATA_PARQUET = os.getenv("LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet")
 
 
 LOGGER = logging.getLogger(__name__)

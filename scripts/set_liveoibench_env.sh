@@ -2,7 +2,7 @@
 export LIVEOIBENCH_DATA_DIR="/data2/kai/LiveOIBench/data"
 export LIVEOIBENCH_PARSE_DIR="/data2/kai/LiveOIBench/data"
 export LIVEOIBENCH_EVAL_RESOURCE_DIR="/data2/kai/LiveOIBench"
-export LIVEOIBENCH_PREDICTIONS_DIR="/data2/kai/IOI-Evaluation/ioi-predictions/old"
+export LIVEOIBENCH_PREDICTIONS_DIR="/data2/kai/LiveOIBench/LiveOIBench-predictions"
 export LIVEOIBENCH_RESULTS_DIR="/data2/kai/LiveOIBench/evaluation/submission_results"
 export TESTLIB_PATH="/data2/kai/IOI-Evaluation/evaluation/testlib.h"
 
@@ -13,6 +13,14 @@ export LIVEOIBENCH_SUBMISSION_RESULTS_DIR="${LIVEOIBENCH_EVAL_DIR}/submission_re
 export LIVEOIBENCH_PROBLEM_RESULTS_DIR="${LIVEOIBENCH_EVAL_DIR}/problem_results"
 export LIVEOIBENCH_CONTEST_RESULTS_DIR="${LIVEOIBENCH_EVAL_DIR}/contest_results"
 export LIVEOIBENCH_FINAL_RESULTS="${LIVEOIBENCH_EVAL_DIR}/final_results.csv"
+
+# Dataset and ranking paths
+export LIVEOIBENCH_CONTESTANT_PARQUET="/data2/kai/huggingface/LiveOIBench_contestants/data/contest_results.parquet"
+export LIVEOIBENCH_PROBLEMS_PARQUET="/data2/kai/huggingface/LiveOIBench/data/liveoibench_v1.parquet"
+export LIVEOIBENCH_USACO_INFO_ROOT="/data2/kai/IOI-Bench-Restructured/USACO"
+export LIVEOIBENCH_DATA_CACHE="/data2/kai/huggingface/LiveOIBench_tests"
+export LIVEOIBENCH_MODEL_RESULTS="${LIVEOIBENCH_EVAL_DIR}/results"
+export LIVEOIBENCH_OUTPUT_DIR="${LIVEOIBENCH_EVAL_DIR}/model_rankings"
 
 # Print values safely (will error if unset because of -u, which is desired here)
 printf "%s\n" "LiveOIBench environment configured:"
@@ -27,3 +35,9 @@ printf "  LIVEOIBENCH_SUBMISSION_RESULTS_DIR=%s\n"     "${LIVEOIBENCH_SUBMISSION
 printf "  LIVEOIBENCH_PROBLEM_RESULTS_DIR=%s\n"        "${LIVEOIBENCH_PROBLEM_RESULTS_DIR}"
 printf "  LIVEOIBENCH_CONTEST_RESULTS_DIR=%s\n"        "${LIVEOIBENCH_CONTEST_RESULTS_DIR}"
 printf "  LIVEOIBENCH_FINAL_RESULTS=%s\n"              "${LIVEOIBENCH_FINAL_RESULTS}"
+printf "  LIVEOIBENCH_CONTESTANT_PARQUET=%s\n"         "${LIVEOIBENCH_CONTESTANT_PARQUET}"
+printf "  LIVEOIBENCH_PROBLEMS_PARQUET=%s\n"           "${LIVEOIBENCH_PROBLEMS_PARQUET}"
+printf "  LIVEOIBENCH_USACO_INFO_ROOT=%s\n"            "${LIVEOIBENCH_USACO_INFO_ROOT}"
+printf "  LIVEOIBENCH_DATA_CACHE=%s\n"                 "${LIVEOIBENCH_DATA_CACHE}"
+printf "  LIVEOIBENCH_MODEL_RESULTS=%s\n"              "${LIVEOIBENCH_MODEL_RESULTS}"
+printf "  LIVEOIBENCH_OUTPUT_DIR=%s\n"                 "${LIVEOIBENCH_OUTPUT_DIR}"
