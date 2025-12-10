@@ -1,8 +1,12 @@
-# LiveOIBench-Evaluation [HuggingFace dataset](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)[Preprint](https://arxiv.org/abs/2510.09595)
+# LiveOIBench-Evaluation 
+
+[Leaderboard](https://liveoibench.github.io/index.html)
+[HuggingFace dataset](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)
+[Preprint](https://arxiv.org/abs/2510.09595)
 
 LiveOIBnehch consists of 403 coding problems collected directly from the official websites of 72 competitions across 14 renowned Informatics Olympiads, focusing on contests held from 2023 onward. We collect all the offical test cases, human contestant ranking results, and contestant Codeforces profiles.
 
-This Github Repo contains the evaluation toolkit for testing LLMs' solutions against the test cases and compare their performance against human contesants. 
+This GitHub repo contains the evaluation toolkit for testing LLMs' solutions against the test cases and comparing their performance against human contestants. 
 
 
 ## Installation
