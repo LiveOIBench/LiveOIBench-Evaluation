@@ -1,4 +1,8 @@
-# LiveOIBench-Evaluation [HuggingFace dataset](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)[Preprint](https://arxiv.org/abs/2510.09595)
+# LiveOIBench-Evaluation 
+
+![PDF](https://img.shields.io/badge/PDF-Preprint-red?logo=arxiv)](https://arxiv.org/abs/2510.09595)
+[![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-informational?logo=huggingface)](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)
+[![Leaderboard](https://img.shields.io/badge/Dataset-HuggingFace-informational.svg?logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz48IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyBmaWxsPSIjMDAwMDAwIiB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjIsN0gxNi4zMzNWNGExLDEsMCwwLDAtMS0xSDguNjY3YTEsMSwwLDAsMC0xLDF2N0gyYTEsMSwwLDAsMC0xLDF2OGExLDEsMCwwLDAsMSwxSDIyYTEsMSwwLDAsMCwxLTFWOEExLDEsMCwwLDAsMjIsN1pNNy42NjcsMTlIM1YxM0g3LjY2N1ptNi42NjYsMEg5LjY2N1Y1aDQuNjY2Wk0yMSwxOUgxNi4zMzNWOUgyMVoiLz48L3N2Zz4=)](https://liveoibench.github.io/leaderboard.html)
 
 LiveOIBnehch consists of 403 coding problems collected directly from the official websites of 72 competitions across 14 renowned Informatics Olympiads, focusing on contests held from 2023 onward. We collect all the offical test cases, human contestant ranking results, and contestant Codeforces profiles.
 
