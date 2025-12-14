@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+Rebuild an IOI-Bench style directory tree by combining metadata from the
+liveoibench_v1 parquet (statements, graders, attachments, etc.) with the
+HuggingFace test-case parquet shards. This script can be used to run only
+one stage (metadata or tests) or both sequentially for a full reconstruction.
+
+The test-case dataset stores each test's full stdin/stdout contents inside
+the `tests` JSON column. We replay those blobs into `.in` / `.out` files so
+judges can execute submissions.
+"""
+
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -14,8 +28,6 @@ from huggingface_hub import HfApi, hf_hub_download
 
 
 DEFAULT_REPO_ID = "LiveOIBench/LiveOIBench_tests"
-DEFAULT_PROBLEMS_REPO_ID = "LiveOIBench/LiveOIBench"
-DEFAULT_CONTESTANTS_REPO_ID = "LiveOIBench/LiveOIBench_contestants"
 DEFAULT_DATA_CACHE = os.getenv("LIVEOIBENCH_DATA_CACHE", "./data/LiveOIBench_tests")
 DEFAULT_METADATA_PARQUET = os.getenv("LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet")
 
@@ -77,45 +89,6 @@ def download_parquet_files(
         )
         local_paths.append(Path(local_path))
     return local_paths
-
-
-def ensure_parquet_cached(
-    *,
-    repo_id: str,
-    revision: str | None,
-    download_dir: Path,
-    parquet_filename: str,
-    context: str,
-) -> Path:
-    """Ensure a parquet file (by basename) exists within download_dir.
-
-    Some HuggingFace dataset repos store parquet artifacts under subfolders; this helper
-    searches recursively in download_dir and downloads the parquet file by basename when
-    missing.
-    """
-    existing_matches = sorted(download_dir.rglob(parquet_filename))
-    if existing_matches:
-        if len(existing_matches) > 1:
-            LOGGER.warning(
-                "Found multiple cached parquet files named '%s' for %s; using %s",
-                parquet_filename,
-                context,
-                existing_matches[0],
-            )
-        return existing_matches[0]
-
-    downloaded_paths = download_parquet_files(
-        repo_id=repo_id,
-        revision=revision,
-        download_dir=download_dir,
-        include_files=[parquet_filename],
-    )
-    for downloaded_path in downloaded_paths:
-        if downloaded_path.name == parquet_filename:
-            return downloaded_path
-    raise DatasetError(
-        f"Downloaded parquet for {context} but could not locate '{parquet_filename}' in {download_dir}."
-    )
 
 
 def iter_dataset_rows(parquet_paths: Sequence[Path]) -> Iterable[Dict[str, object]]:
@@ -459,26 +432,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-id", default=DEFAULT_REPO_ID, help="HuggingFace dataset repo id.")
     parser.add_argument("--revision", default=None, help="Dataset revision (branch/tag/commit).")
     parser.add_argument(
-        "--problems-repo-id",
-        default=DEFAULT_PROBLEMS_REPO_ID,
-        help="HuggingFace dataset repo id containing the problems metadata parquet.",
-    )
-    parser.add_argument(
-        "--contestants-repo-id",
-        default=DEFAULT_CONTESTANTS_REPO_ID,
-        help="HuggingFace dataset repo id containing the contestants ranking parquet(s).",
-    )
-    parser.add_argument(
-        "--problems-revision",
-        default=None,
-        help="Problems dataset revision (branch/tag/commit).",
-    )
-    parser.add_argument(
-        "--contestants-revision",
-        default=None,
-        help="Contestants dataset revision (branch/tag/commit).",
-    )
-    parser.add_argument(
         "--metadata-parquet",
         default=DEFAULT_METADATA_PARQUET,
         help="Parquet file containing metadata (problem statements, graders, etc.).",
@@ -524,12 +477,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional list of specific parquet files (by filename) to download/process.",
     )
     parser.add_argument(
-        "--contestants-parquet-files",
-        nargs="+",
-        default=None,
-        help="Optional list of contestants parquet files (by filename) to download/cache.",
-    )
-    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Recreate tests folders even if they already exist.",
@@ -550,11 +497,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Only simulate metadata reconstruction (still runs tests stage unless skipped).",
     )
     parser.add_argument(
-        "--skip-supporting-parquets",
-        action="store_true",
-        help="Skip downloading/caching the problems and contestants parquet files.",
-    )
-    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging for metadata reconstruction.",
@@ -570,35 +512,8 @@ def main() -> None:
     output_root = Path(args.output_dir).expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    download_dir = Path(args.download_dir).expanduser()
-    download_dir.mkdir(parents=True, exist_ok=True)
-
     if not args.skip_metadata:
         metadata_path = Path(args.metadata_parquet).expanduser()
-
-        if not args.skip_supporting_parquets:
-            metadata_filename = metadata_path.name
-            cached_metadata_path = ensure_parquet_cached(
-                repo_id=args.problems_repo_id,
-                revision=args.problems_revision,
-                download_dir=download_dir,
-                parquet_filename=metadata_filename,
-                context="problems metadata",
-            )
-
-            if not metadata_path.exists():
-                LOGGER.info("Using cached metadata parquet %s", cached_metadata_path)
-                metadata_path = cached_metadata_path
-            else:
-                LOGGER.info("Metadata parquet already exists at %s; cached copy at %s", metadata_path, cached_metadata_path)
-
-            download_parquet_files(
-                repo_id=args.contestants_repo_id,
-                revision=args.contestants_revision,
-                download_dir=download_dir,
-                include_files=args.contestants_parquet_files,
-            )
-
         reconstructor = ParquetReconstructor(
             parquet_path=metadata_path,
             output_dir=output_root,
@@ -614,6 +529,9 @@ def main() -> None:
     if args.skip_tests:
         LOGGER.info("Skipping test case reconstruction per CLI flag.")
         return
+
+    download_dir = Path(args.download_dir).expanduser()
+    download_dir.mkdir(parents=True, exist_ok=True)
 
     parquet_paths = download_parquet_files(args.repo_id, args.revision, download_dir, args.parquet_files)
     print(f"Found {len(parquet_paths)} parquet files to import.")

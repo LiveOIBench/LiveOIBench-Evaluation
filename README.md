@@ -35,6 +35,8 @@ pip install -r requirements.txt
 source scripts/set_liveoibench_env.sh
 ```
 
+We recommend running the evaluation on Linux since this repo is developed on Linux. 
+
 ## Data Setup
 
 ### Download from HuggingFace
