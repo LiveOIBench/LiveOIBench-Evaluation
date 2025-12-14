@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Rebuild an IOI-Bench style directory tree by combining metadata from the
+Rebuild a LiveOIBench-style directory tree by combining metadata from the
 liveoibench_v1 parquet (statements, graders, attachments, etc.) with the
 HuggingFace test-case parquet shards. This script can be used to run only
 one stage (metadata or tests) or both sequentially for a full reconstruction.
@@ -27,9 +27,19 @@ import pyarrow.parquet as pq
 from huggingface_hub import HfApi, hf_hub_download
 
 
-DEFAULT_REPO_ID = "LiveOIBench/LiveOIBench_tests"
-DEFAULT_DATA_CACHE = os.getenv("LIVEOIBENCH_DATA_CACHE", "./data/LiveOIBench_tests")
-DEFAULT_METADATA_PARQUET = os.getenv("LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet")
+DEFAULT_LIVEOIBENCH_ROOT = Path(os.getenv("LIVEOIBENCH_ROOT", "/data2/kai/LiveOIBench")).expanduser()
+DEFAULT_DATA_CACHE = DEFAULT_LIVEOIBENCH_ROOT / "cache"
+DEFAULT_OUTPUT_DIR = DEFAULT_LIVEOIBENCH_ROOT / "data"
+DEFAULT_PROBLEM_PARQUET: str | None = None
+DEFAULT_CONTESTANT_PARQUET: str | None = None
+DEFAULT_TEST_PARQUET: str | None = None
+
+DEFAULT_PROBLEM_PARQUET_NAME = "liveoibench_v1.parquet"
+DEFAULT_CONTESTANT_PARQUET_NAME = "contest_results.parquet"
+
+DEFAULT_PROBLEM_REPO_ID = "LiveOIBench/LiveOIBench"
+DEFAULT_CONTESTANT_REPO_ID = "LiveOIBench/LiveOIBench_contestants"
+DEFAULT_TEST_REPO_ID = "LiveOIBench/LiveOIBench_tests"
 
 
 LOGGER = logging.getLogger(__name__)
@@ -52,16 +62,15 @@ def parse_problem_id(problem_id: str) -> Tuple[str, str, str, str]:
 
 def download_parquet_files(
     repo_id: str,
-    revision: str | None,
     download_dir: Path,
     include_files: Sequence[str] | None = None,
 ) -> List[Path]:
     """Download every parquet artifact from the HuggingFace dataset repo."""
     api = HfApi()
-    files = api.list_repo_files(repo_id=repo_id, repo_type="dataset", revision=revision)
+    files = api.list_repo_files(repo_id=repo_id, repo_type="dataset")
     parquet_files = sorted(f for f in files if f.endswith(".parquet"))
     if not parquet_files:
-        raise DatasetError(f"No parquet files found in dataset repo {repo_id} @ {revision or 'main'}.")
+        raise DatasetError(f"No parquet files found in dataset repo {repo_id}.")
 
     include_set = {Path(f).name for f in include_files} if include_files else None
     if include_set is not None:
@@ -83,7 +92,6 @@ def download_parquet_files(
             repo_id=repo_id,
             filename=filename,
             repo_type="dataset",
-            revision=revision,
             local_dir=str(download_dir),
             local_dir_use_symlinks=False,
         )
@@ -118,6 +126,34 @@ def iter_dataset_rows(parquet_paths: Sequence[Path]) -> Iterable[Dict[str, objec
 def maybe_filter(value: str, filters: Sequence[str] | None) -> bool:
     """Return True when the given value matches the provided whitelist."""
     return not filters or value in filters
+
+
+def ensure_parquet_file(parquet_path: Path, repo_id: str, download_dir: Path, label: str) -> Path:
+    """
+    Ensure the target parquet exists locally, downloading it from the given repo if missing.
+
+    Returns the path to the available parquet file.
+    """
+    if parquet_path.exists():
+        return parquet_path
+
+    download_dir.mkdir(parents=True, exist_ok=True)
+    LOGGER.info(
+        "%s %s not found; downloading from %s into %s",
+        label.capitalize(),
+        parquet_path.name,
+        repo_id,
+        download_dir,
+    )
+    parquet_files = download_parquet_files(
+        repo_id=repo_id,
+        download_dir=download_dir,
+        include_files=[parquet_path.name],
+    )
+    downloaded_path = next((path for path in parquet_files if path.name == parquet_path.name), None)
+    if not downloaded_path:
+        raise DatasetError(f"Unable to download {label} {parquet_path.name} from {repo_id}.")
+    return downloaded_path
 
 
 def write_problem_assets(problem_row: Dict[str, str], output_root: Path, overwrite: bool) -> None:
@@ -228,13 +264,12 @@ def _write_problem_codes(problem_row: Mapping[str, object], problem_dir: Path) -
     if starter_codes:
         attachments_dir = problem_dir / "attachments"
         attachments_dir.mkdir(parents=True, exist_ok=True)
-        print(starter_codes.keys())
         for filename, content in starter_codes.items():
             (attachments_dir / filename).write_text(content, encoding="utf-8")
 
 
 class ParquetReconstructor:
-    """Rebuild IOI-Bench style structure from a metadata parquet file."""
+    """Rebuild LiveOIBench-style structure from a metadata parquet file."""
 
     def __init__(
         self,
@@ -330,10 +365,6 @@ class ParquetReconstructor:
 
             if not self.dry_run:
                 _write_problem_codes(row.to_dict(), problem_dir)
-                (problem_dir / "tests").mkdir(parents=True, exist_ok=True)
-                solutions_dir = problem_dir / "solutions" / "codes"
-                for sub in ["correct", "incorrect", "partially_correct", "time_limit", "model_solution"]:
-                    (solutions_dir / sub).mkdir(parents=True, exist_ok=True)
                 self._write_prompt(
                     problem_dir=problem_dir,
                     task=task,
@@ -429,22 +460,45 @@ class ParquetReconstructor:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Download and materialize LiveOIBench test cases.")
-    parser.add_argument("--repo-id", default=DEFAULT_REPO_ID, help="HuggingFace dataset repo id.")
-    parser.add_argument("--revision", default=None, help="Dataset revision (branch/tag/commit).")
     parser.add_argument(
-        "--metadata-parquet",
-        default=DEFAULT_METADATA_PARQUET,
-        help="Parquet file containing metadata (problem statements, graders, etc.).",
+        "--problem-repo-id",
+        default=DEFAULT_PROBLEM_REPO_ID,
+        help="HuggingFace dataset repo id containing the problem parquet.",
+    )
+    parser.add_argument(
+        "--contestant-repo-id",
+        default=DEFAULT_CONTESTANT_REPO_ID,
+        help="HuggingFace dataset repo id containing the contestant parquet.",
+    )
+    parser.add_argument(
+        "--test-repo-id",
+        default=DEFAULT_TEST_REPO_ID,
+        help="HuggingFace dataset repo id containing the test parquet shards.",
+    )
+    parser.add_argument(
+        "--problem-parquet",
+        default=DEFAULT_PROBLEM_PARQUET,
+        help="Problem parquet containing metadata (problem statements, graders, etc.). Defaults to download_dir/huggingface/problems/liveoibench_v1.parquet and will be downloaded when missing.",
+    )
+    parser.add_argument(
+        "--contestant-parquet",
+        default=DEFAULT_CONTESTANT_PARQUET,
+        help="Contestant standings parquet used for rankings metadata. Defaults to download_dir/huggingface/contestants/contest_results.parquet and will be downloaded when missing.",
+    )
+    parser.add_argument(
+        "--test-parquet",
+        default=DEFAULT_TEST_PARQUET,
+        help="Specific test parquet filename to download/process (default: download all available shards).",
     )
     parser.add_argument(
         "--download-dir",
-        default=DEFAULT_DATA_CACHE,
-        help="Directory containing (or caching) the HuggingFace parquet files.",
+        default=str(DEFAULT_DATA_CACHE),
+        help="Directory containing (or caching) the HuggingFace parquet files. Defaults to LIVEOIBENCH_ROOT/cache.",
     )
     parser.add_argument(
         "--output-dir",
-        default="/data2/kai/LiveOIBench/data",
-        help="Root directory where the IOI-Bench layout should be rebuilt.",
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Root directory where the LiveOIBench layout should be rebuilt (defaults to LIVEOIBENCH_ROOT/data).",
     )
     parser.add_argument(
         "--include-competitions",
@@ -482,9 +536,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Recreate tests folders even if they already exist.",
     )
     parser.add_argument(
-        "--skip-metadata",
+        "--skip-problems",
         action="store_true",
-        help="Skip metadata reconstruction (statements, graders, attachments, etc.).",
+        help="Skip problem metadata reconstruction (statements, graders, attachments, etc.).",
     )
     parser.add_argument(
         "--skip-tests",
@@ -509,13 +563,53 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s:%(message)s")
+    problem_repo_id = args.problem_repo_id
+    contestant_repo_id = args.contestant_repo_id
+    test_repo_id = args.test_repo_id
+
     output_root = Path(args.output_dir).expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
+    download_dir = Path(args.download_dir).expanduser()
+    download_dir.mkdir(parents=True, exist_ok=True)
 
-    if not args.skip_metadata:
-        metadata_path = Path(args.metadata_parquet).expanduser()
+    huggingface_dir = download_dir / "huggingface"
+    problem_download_dir = huggingface_dir / "problems"
+    contestant_download_dir = huggingface_dir / "contestants"
+    test_download_dir = huggingface_dir / "tests"
+    huggingface_dir.mkdir(parents=True, exist_ok=True)
+    problem_download_dir.mkdir(parents=True, exist_ok=True)
+    contestant_download_dir.mkdir(parents=True, exist_ok=True)
+    test_download_dir.mkdir(parents=True, exist_ok=True)
+
+    problem_parquet_arg = (
+        Path(args.problem_parquet).expanduser()
+        if args.problem_parquet
+        else problem_download_dir / DEFAULT_PROBLEM_PARQUET_NAME
+    )
+    contestant_parquet_arg = (
+        Path(args.contestant_parquet).expanduser()
+        if args.contestant_parquet
+        else contestant_download_dir / DEFAULT_CONTESTANT_PARQUET_NAME
+    )
+    test_parquet_arg = Path(args.test_parquet).expanduser() if args.test_parquet else None
+
+    problem_parquet_path = ensure_parquet_file(
+        parquet_path=problem_parquet_arg,
+        repo_id=problem_repo_id,
+        download_dir=problem_download_dir,
+        label="problem parquet",
+    )
+    contestant_parquet_path = ensure_parquet_file(
+        parquet_path=contestant_parquet_arg,
+        repo_id=contestant_repo_id,
+        download_dir=contestant_download_dir,
+        label="contestant parquet",
+    )
+    LOGGER.debug("Contestant parquet available at %s", contestant_parquet_path)
+
+    if not args.skip_problems:
         reconstructor = ParquetReconstructor(
-            parquet_path=metadata_path,
+            parquet_path=problem_parquet_path,
             output_dir=output_root,
             include_competitions=args.include_competitions,
             include_years=args.include_years,
@@ -524,17 +618,27 @@ def main() -> None:
         )
         reconstructor.reconstruct()
     else:
-        LOGGER.info("Skipping metadata reconstruction per CLI flag.")
+        LOGGER.info("Skipping problem reconstruction per CLI flag.")
 
     if args.skip_tests:
         LOGGER.info("Skipping test case reconstruction per CLI flag.")
         return
-
-    download_dir = Path(args.download_dir).expanduser()
-    download_dir.mkdir(parents=True, exist_ok=True)
-
-    parquet_paths = download_parquet_files(args.repo_id, args.revision, download_dir, args.parquet_files)
-    print(f"Found {len(parquet_paths)} parquet files to import.")
+    test_parquet_paths: Sequence[Path]
+    if test_parquet_arg:
+        test_parquet_paths = [
+            ensure_parquet_file(
+                parquet_path=test_parquet_arg,
+                repo_id=test_repo_id,
+                download_dir=test_download_dir,
+                label="test parquet",
+            )
+        ]
+    else:
+        test_parquet_paths = download_parquet_files(
+            test_repo_id, test_download_dir, args.parquet_files
+        )
+    parquet_paths = test_parquet_paths
+    LOGGER.info("Found %d parquet files to import.", len(parquet_paths))
 
     processed = 0
     for row in iter_dataset_rows(parquet_paths):
@@ -549,11 +653,11 @@ def main() -> None:
         write_problem_assets(row, output_root, overwrite=args.overwrite)
         processed += 1
         if processed % 25 == 0:
-            print(f"...processed {processed} problems")
+            LOGGER.info("Processed %d problems during test reconstruction", processed)
         if args.limit and processed >= args.limit:
             break
 
-    print(f"Finished reconstructing tests for {processed} problems into {output_root}")
+    LOGGER.info("Finished reconstructing tests for %d problems into %s", processed, output_root)
 
 
 if __name__ == "__main__":
