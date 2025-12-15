@@ -7,7 +7,7 @@
 
 [![PDF](https://img.shields.io/badge/PDF-Preprint-red?logo=arxiv)](https://arxiv.org/abs/2510.09595)
 [![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-informational?logo=huggingface)](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)
-[![Leaderboard](https://img.shields.io/badge/Dataset-HuggingFace-informational.svg?logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz48IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyBmaWxsPSIjMDAwMDAwIiB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjIsN0gxNi4zMzNWNGExLDEsMCwwLDAtMS0xSDguNjY3YTEsMSwwLDAsMC0xLDF2N0gyYTEsMSwwLDAsMC0xLDF2OGExLDEsMCwwLDAsMSwxSDIyYTEsMSwwLDAsMCwxLTFWOEExLDEsMCwwLDAsMjIsN1pNNy42NjcsMTlIM1YxM0g3LjY2N1ptNi42NjYsMEg5LjY2N1Y1aDQuNjY2Wk0yMSwxOUgxNi4zMzNWOUgyMVoiLz48L3N2Zz4=)](https://liveoibench.github.io/leaderboard.html)
+[![Leaderboard](https://img.shields.io/badge/Website-Leaderboard-informational.svg?logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz48IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyBmaWxsPSIjMDAwMDAwIiB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjIsN0gxNi4zMzNWNGExLDEsMCwwLDAtMS0xSDguNjY3YTEsMSwwLDAsMC0xLDF2N0gyYTEsMSwwLDAsMC0xLDF2OGExLDEsMCwwLDAsMSwxSDIyYTEsMSwwLDAsMCwxLTFWOEExLDEsMCwwLDAsMjIsN1pNNy42NjcsMTlIM1YxM0g3LjY2N1ptNi42NjYsMEg5LjY2N1Y1aDQuNjY2Wk0yMSwxOUgxNi4zMzNWOUgyMVoiLz48L3N2Zz4=)](https://liveoibench.github.io/leaderboard.html)
 
 LiveOIBnehch consists of 403 coding problems collected directly from the official websites of 72 competitions across 14 renowned Informatics Olympiads, focusing on contests held from 2023 onward. We collect all the offical test cases, human contestant ranking results, and contestant Codeforces profiles.
 
@@ -31,7 +31,7 @@ cd LiveOIBench-Evaluation
 pip install -r requirements.txt
 ```
 
-> ⚠️ This repo is developed and tested on Linux. macOS may work but is not officially supported.
+> ⚠️ This repo is developed and tested on Linux.
 
 ---
 
@@ -61,7 +61,7 @@ python src/process_dataset.py \
 ```
 
 ⏳ **Note:**  
-Reconstruction may take significant time and disk space.  
+Reconstruction may take some time and disk space.  
 Total test cases exceed **30 GB**.
 
 ---
@@ -94,7 +94,7 @@ ${LIVEOIBENCH_ROOT}/predictions/<model>/
 
 ### 2. Judge Model Solutions
 
-Run official judging against test cases:
+Run judging against offcial test cases:
 
 ```bash
 bash scripts/run_model_solutions.sh
@@ -130,22 +130,19 @@ This generates CSV summaries with:
 
 To submit results to the LiveOIBench leaderboard:
 
-📩 Email your model’s  
+share your your model’s  
 `<model>_code.json`  
-to **Kai** at **zkjzou@umich.edu**
+with us at **zkjzou@umich.edu**
 
 ---
 
-## License
+## Contact
 
-This project is released under the **Apache License 2.0**.  
-See the [LICENSE](LICENSE) file for details.
-
----
+For questions and support, please contact us at **zkjzou@umich.edu**
 
 ## Citation
 
-If you use LiveOIBench in your research, please cite:
+If you find LiveOIBench and the repo useful in your work, please cite:
 
 ```bibtex
 @article{zou2025liveoibench,
@@ -157,3 +154,6 @@ If you use LiveOIBench in your research, please cite:
   doi={10.48550/arXiv.2510.09595}
 }
 ```
+## Acknowledgements
+
+We thank Codeforces and the organizing committees of Informatics Olympiads worldwide for making problem materials and contest data publicly available.

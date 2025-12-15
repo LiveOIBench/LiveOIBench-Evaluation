@@ -1,5 +1,3 @@
-export LIVEOIBENCH_ROOT="/data2/kai/LiveOIBench-Testing"
-
 python src/generate_solutions.py \
     --model gpt-5.1 \
     --competitions IOI BOI CEOI CCO COCI EGOI EJOI IATI OOI USACO RMI APIO JOI NOINordic \

@@ -17,4 +17,5 @@ python src/run_judge.py batch \
   --cache_dir "${CACHE_DIR}" \
   --stop_on_failure \
   --workers 6 \
+  --reeval \
   --max_solutions 8

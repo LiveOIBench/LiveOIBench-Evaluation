@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 from huggingface_hub import HfApi, hf_hub_download
 
 
-DEFAULT_LIVEOIBENCH_ROOT = Path(os.getenv("LIVEOIBENCH_ROOT", "/data2/kai/LiveOIBench")).expanduser()
+DEFAULT_LIVEOIBENCH_ROOT = Path(os.getenv("LIVEOIBENCH_ROOT"))
 DEFAULT_PARQUET_FILES_DIR = DEFAULT_LIVEOIBENCH_ROOT / "parquet_files"
 DEFAULT_OUTPUT_DIR = DEFAULT_LIVEOIBENCH_ROOT / "data"
 DEFAULT_PROBLEM_PARQUET = ["liveoibench_v1.parquet"]

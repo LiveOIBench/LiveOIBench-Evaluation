@@ -2,8 +2,8 @@
 import json, os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TESTLIB = os.environ.get("TESTLIB_PATH", str(REPO_ROOT / "judges" / "testlib.h"))
+REPO_ROOT = Path(__file__).resolve().parents[0]
+DEFAULT_TESTLIB = os.environ.get("TESTLIB_PATH", str(REPO_ROOT / "testlib.h"))
 
 class Problem:
     def __init__(self, problem_dir, task, year, competition, round_name, split, parse_dir=None):

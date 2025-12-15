@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
 DATA_DIR="${LIVEOIBENCH_ROOT}/data"
 EVAL_DIR="${LIVEOIBENCH_ROOT}/evaluation"
 
