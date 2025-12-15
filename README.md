@@ -1,6 +1,11 @@
-# LiveOIBench-Evaluation 
+<table>
+<tr>
+<td><img src="assets/liveoibench_logo.png" alt="WEB-SHEPHERD Logo" width="150"/></td>
+<td><h1 style="margin: 0;">LiveOIBench: Can Large Language Models Outperform Human Contestants in Informatics Olympiads?</h1></td>
+</tr>
+</table>
 
-![PDF](https://img.shields.io/badge/PDF-Preprint-red?logo=arxiv)](https://arxiv.org/abs/2510.09595)
+[![PDF](https://img.shields.io/badge/PDF-Preprint-red?logo=arxiv)](https://arxiv.org/abs/2510.09595)
 [![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-informational?logo=huggingface)](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)
 [![Leaderboard](https://img.shields.io/badge/Dataset-HuggingFace-informational.svg?logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz48IS0tIFVwbG9hZGVkIHRvOiBTVkcgUmVwbywgd3d3LnN2Z3JlcG8uY29tLCBHZW5lcmF0b3I6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyBmaWxsPSIjMDAwMDAwIiB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjIsN0gxNi4zMzNWNGExLDEsMCwwLDAtMS0xSDguNjY3YTEsMSwwLDAsMC0xLDF2N0gyYTEsMSwwLDAsMC0xLDF2OGExLDEsMCwwLDAsMSwxSDIyYTEsMSwwLDAsMCwxLTFWOEExLDEsMCwwLDAsMjIsN1pNNy42NjcsMTlIM1YxM0g3LjY2N1ptNi42NjYsMEg5LjY2N1Y1aDQuNjY2Wk0yMSwxOUgxNi4zMzNWOUgyMVoiLz48L3N2Zz4=)](https://liveoibench.github.io/leaderboard.html)
 
