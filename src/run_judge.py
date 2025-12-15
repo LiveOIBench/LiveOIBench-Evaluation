@@ -1,21 +1,9 @@
-#!/usr/bin/env python3
-"""Unified judge entry point.
-
-Handles two workflows:
-1. Batch evaluation over many benchmark problems/solutions.
-2. Single-solution judging for quick spot checks.
-
-Batch mode persists evaluation results to JSON so that `generate_results.py`
-can produce CSV summaries independently.
-"""
-
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
 import os
 import sys
+import shutil
 import tempfile
 import threading
 import time
@@ -37,6 +25,23 @@ counter_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+def _safe_rmtree(path: str) -> None:
+    if path and os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def cleanup_judge_artifacts(evaluation_dir: str, keep_executables: bool, save_output: bool) -> None:
+    """Remove working artifacts when not requested to keep them."""
+    executables_dir = os.path.join(evaluation_dir, "executables")
+    work_dir = os.path.join(evaluation_dir, "work")
+    outputs_dir = os.path.join(evaluation_dir, "outputs")
+
+    if not keep_executables:
+        _safe_rmtree(executables_dir)
+        _safe_rmtree(work_dir)
+    if not save_output:
+        _safe_rmtree(outputs_dir)
 
 
 def normalize_solution_types(solution_types: Iterable[str]) -> List[str]:
@@ -721,6 +726,7 @@ def run_batch(args: argparse.Namespace) -> None:
     metadata_args = {k: v for k, v in vars(args).items() if k not in {"handler"}}
     write_per_model_result_files(results, ps_map, args, metadata_args, generated_at, duration, timestamp, args.llm_models)
     print(f"=== Done in {duration:.2f}s ===")
+    cleanup_judge_artifacts(args.evaluation_dir, args.keep_executables, args.save_output)
 
 
 # ---------------------------------------------------------------------------
@@ -751,6 +757,7 @@ def run_single(args: argparse.Namespace) -> None:
     status = determine_result_type(score_info, details)
     print(f"Result: {status.name}")
     print(json.dumps(score_info, indent=2))
+    cleanup_judge_artifacts(args.evaluation_folder, args.keep_executables, args.save_output)
 
 
 # ---------------------------------------------------------------------------
@@ -777,6 +784,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     batch.add_argument("--stop_on_failure", action="store_true", help="Stop evaluation on first failing test")
     batch.add_argument("--save_output", action="store_true", help="Persist judge outputs under evaluation resources directory")
     batch.add_argument("--keep_executables", action="store_true", help="Preserve compiled executables and work folders after judging")
+    batch.add_argument("--work_dir", type=str, default=None, help="Custom working directory for judge runs (defaults to a temp dir under evaluation_dir).")
     batch.add_argument("--data_dir", type=str, required=True, help="Benchmark data root")
     batch.add_argument("--evaluation_dir", type=str, required=True, help="Evaluation resources root")
     batch.add_argument("--output_dir", type=str, required=True, help="Directory for evaluation artifacts")
@@ -803,6 +811,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     single.add_argument("--generate_gold_output", action="store_true")
     single.add_argument("--max_workers", type=int, default=4)
     single.add_argument("--keep_executables", action="store_true")
+    single.add_argument("--work_dir", type=str, default=None, help="Custom working directory for judge runs (defaults to a temp dir under evaluation_folder).")
     single.set_defaults(handler=run_single)
 
     return parser.parse_args(argv)

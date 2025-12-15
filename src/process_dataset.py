@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Rebuild a LiveOIBench-style directory tree by combining metadata from the
-liveoibench_v1 parquet (statements, graders, attachments, etc.) with the
-HuggingFace test-case parquet shards. This script can be used to run only
-one stage (metadata or tests) or both sequentially for a full reconstruction.
-
-The test-case dataset stores each test's full stdin/stdout contents inside
-the `tests` JSON column. We replay those blobs into `.in` / `.out` files so
-judges can execute submissions.
-"""
-
-from __future__ import annotations
-
 import argparse
 import json
 import logging
@@ -28,14 +14,15 @@ from huggingface_hub import HfApi, hf_hub_download
 
 
 DEFAULT_LIVEOIBENCH_ROOT = Path(os.getenv("LIVEOIBENCH_ROOT", "/data2/kai/LiveOIBench")).expanduser()
-DEFAULT_DATA_CACHE = DEFAULT_LIVEOIBENCH_ROOT / "cache"
+DEFAULT_PARQUET_FILES_DIR = DEFAULT_LIVEOIBENCH_ROOT / "parquet_files"
 DEFAULT_OUTPUT_DIR = DEFAULT_LIVEOIBENCH_ROOT / "data"
-DEFAULT_PROBLEM_PARQUET: str | None = None
-DEFAULT_CONTESTANT_PARQUET: str | None = None
-DEFAULT_TEST_PARQUET: str | None = None
-
-DEFAULT_PROBLEM_PARQUET_NAME = "liveoibench_v1.parquet"
-DEFAULT_CONTESTANT_PARQUET_NAME = "contest_results.parquet"
+DEFAULT_PROBLEM_PARQUET = ["liveoibench_v1.parquet"]
+DEFAULT_CONTESTANT_PARQUET = ["contest_results.parquet"]
+DEFAULT_TEST_PARQUET = [
+    "liveoibench_testcases_v1_2023.parquet",
+    "liveoibench_testcases_v1_2024.parquet",
+    "liveoibench_testcases_v1_2025.parquet",
+]
 
 DEFAULT_PROBLEM_REPO_ID = "LiveOIBench/LiveOIBench"
 DEFAULT_CONTESTANT_REPO_ID = "LiveOIBench/LiveOIBench_contestants"
@@ -477,23 +464,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--problem-parquet",
-        default=DEFAULT_PROBLEM_PARQUET,
-        help="Problem parquet containing metadata (problem statements, graders, etc.). Defaults to download_dir/huggingface/problems/liveoibench_v1.parquet and will be downloaded when missing.",
+        nargs="+",
+        default=None,
+        help="Problem parquet filename(s) containing metadata (problem statements, graders, etc.). Defaults to liveoibench_v1.parquet; will reuse local files under parquet_files/problems or download when missing.",
     )
     parser.add_argument(
         "--contestant-parquet",
-        default=DEFAULT_CONTESTANT_PARQUET,
-        help="Contestant standings parquet used for rankings metadata. Defaults to download_dir/huggingface/contestants/contest_results.parquet and will be downloaded when missing.",
+        nargs="+",
+        default=None,
+        help="Contestant standings parquet filename(s). Defaults to contest_results.parquet; will reuse local files under parquet_files/contestants or download when missing.",
     )
     parser.add_argument(
         "--test-parquet",
-        default=DEFAULT_TEST_PARQUET,
+        nargs="+",
+        default=None,
         help="Specific test parquet filename to download/process (default: download all available shards).",
     )
     parser.add_argument(
         "--download-dir",
-        default=str(DEFAULT_DATA_CACHE),
-        help="Directory containing (or caching) the HuggingFace parquet files. Defaults to LIVEOIBENCH_ROOT/cache.",
+        default=str(DEFAULT_PARQUET_FILES_DIR),
+        help="Directory containing (or caching) the HuggingFace parquet files. Defaults to LIVEOIBENCH_ROOT/parquet_files.",
     )
     parser.add_argument(
         "--output-dir",
@@ -523,12 +513,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Stop after processing this many problems (useful for smoke tests).",
-    )
-    parser.add_argument(
-        "--parquet-files",
-        nargs="+",
-        default=None,
-        help="Optional list of specific parquet files (by filename) to download/process.",
     )
     parser.add_argument(
         "--overwrite",
@@ -572,39 +556,55 @@ def main() -> None:
     download_dir = Path(args.download_dir).expanduser()
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    huggingface_dir = download_dir / "huggingface"
-    problem_download_dir = huggingface_dir / "problems"
-    contestant_download_dir = huggingface_dir / "contestants"
-    test_download_dir = huggingface_dir / "tests"
-    huggingface_dir.mkdir(parents=True, exist_ok=True)
+    problem_download_dir = download_dir / "problems"
+    contestant_download_dir = download_dir / "contestants"
+    test_download_dir = download_dir / "tests"
     problem_download_dir.mkdir(parents=True, exist_ok=True)
     contestant_download_dir.mkdir(parents=True, exist_ok=True)
     test_download_dir.mkdir(parents=True, exist_ok=True)
 
-    problem_parquet_arg = (
-        Path(args.problem_parquet).expanduser()
-        if args.problem_parquet
-        else problem_download_dir / DEFAULT_PROBLEM_PARQUET_NAME
-    )
-    contestant_parquet_arg = (
-        Path(args.contestant_parquet).expanduser()
-        if args.contestant_parquet
-        else contestant_download_dir / DEFAULT_CONTESTANT_PARQUET_NAME
-    )
-    test_parquet_arg = Path(args.test_parquet).expanduser() if args.test_parquet else None
+    # Resolve parquet files, preferring local copies under parquet_files/<type> before downloading
+    problem_files = args.problem_parquet or DEFAULT_PROBLEM_PARQUET
+    contestant_files = args.contestant_parquet or DEFAULT_CONTESTANT_PARQUET
+    test_files = args.test_parquet or DEFAULT_TEST_PARQUET
 
-    problem_parquet_path = ensure_parquet_file(
-        parquet_path=problem_parquet_arg,
-        repo_id=problem_repo_id,
-        download_dir=problem_download_dir,
-        label="problem parquet",
+    def resolve_files(filenames: Sequence[str], local_dir: Path, cache_dir: Path, repo_id: str, label: str) -> List[Path]:
+        resolved: List[Path] = []
+        for name in filenames:
+            name_path = Path(name)
+            if name_path.is_absolute() and name_path.exists():
+                resolved.append(name_path)
+                continue
+            local_candidate = local_dir / name
+            if local_candidate.exists():
+                resolved.append(local_candidate)
+                continue
+            target_path = cache_dir / name
+            resolved.append(
+                ensure_parquet_file(
+                    parquet_path=target_path,
+                    repo_id=repo_id,
+                    download_dir=cache_dir,
+                    label=label,
+                )
+            )
+        return resolved
+
+    problem_local_dir = DEFAULT_PARQUET_FILES_DIR / "problems"
+    contestant_local_dir = DEFAULT_PARQUET_FILES_DIR / "contestants"
+    test_local_dir = DEFAULT_PARQUET_FILES_DIR / "tests"
+
+    problem_parquet_paths = resolve_files(
+        problem_files, problem_local_dir, problem_download_dir, problem_repo_id, "problem parquet"
     )
-    contestant_parquet_path = ensure_parquet_file(
-        parquet_path=contestant_parquet_arg,
-        repo_id=contestant_repo_id,
-        download_dir=contestant_download_dir,
-        label="contestant parquet",
+    contestant_parquet_paths = resolve_files(
+        contestant_files, contestant_local_dir, contestant_download_dir, contestant_repo_id, "contestant parquet"
     )
+    test_parquet_paths = resolve_files(
+        test_files, test_local_dir, test_download_dir, test_repo_id, "test parquet"
+    )
+    problem_parquet_path = problem_parquet_paths[0]
+    contestant_parquet_path = contestant_parquet_paths[0]
     LOGGER.debug("Contestant parquet available at %s", contestant_parquet_path)
 
     if not args.skip_problems:
@@ -623,20 +623,6 @@ def main() -> None:
     if args.skip_tests:
         LOGGER.info("Skipping test case reconstruction per CLI flag.")
         return
-    test_parquet_paths: Sequence[Path]
-    if test_parquet_arg:
-        test_parquet_paths = [
-            ensure_parquet_file(
-                parquet_path=test_parquet_arg,
-                repo_id=test_repo_id,
-                download_dir=test_download_dir,
-                label="test parquet",
-            )
-        ]
-    else:
-        test_parquet_paths = download_parquet_files(
-            test_repo_id, test_download_dir, args.parquet_files
-        )
     parquet_paths = test_parquet_paths
     LOGGER.info("Found %d parquet files to import.", len(parquet_paths))
 

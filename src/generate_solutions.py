@@ -3,7 +3,7 @@ import json
 import time
 import subprocess
 import argparse
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Tuple
 import requests
 import tempfile
 import asyncio
@@ -16,17 +16,36 @@ from code_extractor import CodeExtractor, ExtractionStats
 from judges.problem import Problem
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROBLEMS_DIR = os.environ.get("LIVEOIBENCH_DATA_DIR")
-DEFAULT_PARSE_DIR = os.environ.get("LIVEOIBENCH_PARSE_DIR")
-DEFAULT_EVAL_DIR = os.environ.get("LIVEOIBENCH_EVAL_RESOURCE_DIR")
-DEFAULT_PREDICTION_DIR = os.environ.get("LIVEOIBENCH_PREDICTIONS_DIR")
+DEFAULT_ROOT = Path(os.getenv("LIVEOIBENCH_ROOT"))
+DEFAULT_PROBLEMS_DIR = str(DEFAULT_ROOT / "data")
+DEFAULT_PARSE_DIR = str(DEFAULT_ROOT / "data")
+DEFAULT_EVAL_DIR = str(DEFAULT_ROOT / "evaluation")
+DEFAULT_PREDICTION_DIR = str(DEFAULT_ROOT / "predictions")
 
-class IoIEvaluation:
-    def __init__(self, model_name: str, competitions, years, rounds, tasks, task_types, problems_dir: str, 
-                 parse_dir, evaluation_dir: str, prediction_dir: str, vllm: bool, seeds: int, 
-                 rerun: bool = False, port: int = 8080, system_prompt: bool = False,
-                 requests_per_minute: int = 200, sequential: bool = False, reparse: bool = False,
-                 openai_client: str = 'openai'):  # Add new parameter
+class LiveOIBenchEvaluation:
+    def __init__(
+        self,
+        model_name: str,
+        competitions,
+        years,
+        rounds,
+        tasks,
+        task_types,
+        problems_dir: str,
+        parse_dir: str,
+        evaluation_dir: str,
+        prediction_dir: str,
+        vllm: bool,
+        seeds: int,
+        rerun: bool = False,
+        port: int = 8080,
+        system_prompt: bool = False,
+        requests_per_minute: int = 200,
+        sequential: bool = False,
+        reparse: bool = False,
+        openai_client: str = "openai",
+        mode: str = "folder",
+    ):
         """
         Initialize the evaluation pipeline.
         
@@ -58,12 +77,16 @@ class IoIEvaluation:
         self.sequential = sequential
         self.reparse = reparse
         self.openai_client = openai_client
+        self.mode = mode
+        self.json_output_dir = Path(self.prediction_dir).expanduser() / self.model_name
         
         # Create output directory if it doesn't exist
         os.makedirs(evaluation_dir, exist_ok=True)
 
         # Results storage
         self.results = {}
+        self.code_records: Dict[str, Dict[str, str]] = {}
+        self.raw_records: Dict[str, Dict[str, Any]] = {}
 
         # Tracking statistics
         self.extraction_stats = ExtractionStats()
@@ -74,7 +97,7 @@ class IoIEvaluation:
         for year, contests in self.task_dict.items():
             for contest, tasks in contests.items():
                 for task in tasks:
-                    with open(self.problems_dir + f"/IOI/{year}/{contest}/{task}/{task}_prompt.txt", 'r') as f:
+                    with open(self.problems_dir + f"/LiveOIBench/{year}/{contest}/{task}/{task}_prompt.txt", 'r') as f:
                         problems[year + "_" + contest + "_" + task] = {
                             "problem_id": year + "_" + contest + "_" + task,
                             "prompt": f.read(),
@@ -148,15 +171,19 @@ class IoIEvaluation:
 
         return problems
     
-    def generate_solution(self, problems, model, seeds=5) -> str:
+    def generate_solution(self, problems, model, seeds=5) -> Dict[str, List[str]]:
         """Generate code solution for a given problem using the specified model."""
         print(f"Generating solution for model: {model}")
         
         query_prompts = []
-        save_info = []
+        save_info: List[Tuple[str, int, str]] = []
+        solutions: Dict[str, List[str]] = {}
         
         # Track all problems for reparsing
         all_problems = []
+        existing_keys: set[tuple[str, int]] = set()
+        if self.mode == "json":
+            existing_keys = self._load_existing_json_predictions(solutions)
         for problem in problems:
             parse_task_path = os.path.join(self.parse_dir, problem['competition'], problem['year'], problem['round'], problem['task'])
             problem_obj = Problem(problem['dir'], problem['task'], problem['year'], problem['competition'], problem['round'], problem['split'], parse_task_path)
@@ -164,20 +191,24 @@ class IoIEvaluation:
             prediction_path = os.path.join(self.prediction_dir, model, problem['competition'], problem['year'], problem['round'], problem['task'])
             
             # Remember all problems for potential reparsing
-            all_problems.append((problem['task'], prediction_path))
+            all_problems.append((problem, prediction_path))
             
             # Only query for non-existing responses if not reparsing
             if not self.reparse:
                 for i in range(seeds):
-                    if os.path.exists(prediction_path + f"/raw/{problem['task']}_{model}_{i}.json") and not self.rerun:
+                    problem_id = problem.get("id") or f"{problem['competition']}-{problem['year']}-{problem['round']}-{problem['task']}"
+                    existing_key = (problem_id, i)
+                    if self.mode == "json" and not self.rerun and existing_key in existing_keys:
+                        continue
+                    if self.mode == "folder" and os.path.exists(prediction_path + f"/raw/{problem['task']}_{model}_{i}.json") and not self.rerun:
                         continue
                     # Store prompt
-                    query_prompts.append((problem['task'], i, prompt, prediction_path))
+                    query_prompts.append((problem, i, prompt, prediction_path))
                     # Store saving information
-                    save_info.append((problem['task'], i, prediction_path))
+                    if self.mode == "folder":
+                        save_info.append((problem['task'], i, prediction_path))
         
         # Process generation of new responses
-        solutions = {}
         if not self.reparse:
             print(f"Total Problems to generate: {len(query_prompts)}")
             
@@ -213,15 +244,17 @@ class IoIEvaluation:
                     vllm=self.vllm, 
                     port=self.port,
                     requests_per_minute=self.requests_per_minute,
-                    save_info=save_info,
+                    save_info=save_info if self.mode == "folder" else None,
                     verbose=True,
                     sequential=self.sequential,  # Pass the sequential flag
                     openai_client=self.openai_client  # Pass the parameter
                 ))
 
-                # Save token usage to a JSON file with timestamp
+                # Save token usage to a JSON file alongside predictions (timestamped)
                 timestamp = int(time.time())
-                token_usage_path = os.path.join(self.evaluation_dir, f"{model}_token_usage_{timestamp}.json")
+                token_usage_dir = Path(self.prediction_dir).expanduser() / model
+                token_usage_dir.mkdir(parents=True, exist_ok=True)
+                token_usage_path = token_usage_dir / f"{model}_token_usage_{timestamp}.json"
                 with open(token_usage_path, "w") as f:
                     json.dump(token_usage, f, indent=2)
 
@@ -229,21 +262,21 @@ class IoIEvaluation:
                 
                 # Process responses and extract code
                 for i, response in enumerate(responses):
-                    task = query_prompts[i][0]
+                    problem_meta = query_prompts[i][0]
                     seed = query_prompts[i][1]
                     prediction_path = query_prompts[i][3]
                     
-                    self._extract_and_save_code(task, seed, model, prediction_path, response, solutions)
+                    self._extract_and_save_code(problem_meta, seed, model, prediction_path, response, solutions)
         
         # Reparse code from existing responses if requested
-        if self.reparse:
+        if self.mode == "folder" and self.reparse:
             print("Reparsing code from existing responses...")
-            for task, prediction_path in all_problems:
+            for problem_meta, prediction_path in all_problems:
                 if not os.path.exists(prediction_path + "/raw"):
                     continue
                     
                 for file in os.listdir(prediction_path + "/raw"):
-                    if file.startswith(f"{task}_{model}_") and file.endswith(".json"):
+                    if file.startswith(f"{problem_meta['task']}_{model}_") and file.endswith(".json"):
                         try:
                             seed = int(file.split('_')[-1].split('.')[0])
                             response_file = os.path.join(prediction_path, "raw", file)
@@ -269,52 +302,158 @@ class IoIEvaluation:
                                     print(f"Skipping {file} - unexpected format")
                                     continue
                                     
-                                self._extract_and_save_code(task, seed, model, prediction_path, response, solutions)
+                                self._extract_and_save_code(problem_meta, seed, model, prediction_path, response, solutions)
                             else:
                                 print(f"Skipping {file} - not a valid response")
                                 self.extraction_stats.record('failed')
                         except Exception as e:
                             print(f"Error reparsing {file}: {e}")
                             self.extraction_stats.record('failed')
+        elif self.mode == "json" and self.reparse:
+            print("Reparse mode is only supported for folder output; skipping reparse.")
         
+        if self.mode == "json":
+            self._write_json_predictions()
+
         # Print extraction statistics
         self.extraction_stats.print_summary()
 
         return solutions
     
-    def _extract_and_save_code(self, task, seed, model, prediction_path, response, solutions):
+    def _extract_and_save_code(self, problem_meta: Dict[str, Any], seed: int, model: str, prediction_path: str, response: Any, solutions: Dict[str, List[str]]):
         """Helper method to extract and save code from a response"""
+        task = problem_meta["task"]
+        problem_id = problem_meta.get("id") or f"{problem_meta.get('competition')}-{problem_meta.get('year')}-{problem_meta.get('round')}-{task}"
         if task not in solutions:
             solutions[task] = []
 
         # Extract content from response
         content = CodeExtractor.extract_from_response(response)
 
+        raw_response = self._response_to_json(response)
+
         if content is None:
             # No valid response
-            CodeExtractor.save_code(None, prediction_path, task, model, seed)
-            solutions[task].append("")
-            self.extraction_stats.record('failed')
-            print(f"No valid response for {task} seed {seed}")
-            return
+            code = ""
+            status = "failed"
+            if self.mode == "folder":
+                CodeExtractor.save_code(None, prediction_path, task, model, seed)
+            else:
+                code_filename = f"{task}_{model}_{seed}.cpp"
+                self.code_records.setdefault(problem_id, {})[code_filename] = code
+                raw_filename = f"{task}_{model}_{seed}.json"
+                self.raw_records.setdefault(problem_id, {})[raw_filename] = raw_response
+        else:
+            # Extract code from content
+            code, status = CodeExtractor.extract_code(content, task)
 
-        # Extract code from content
-        code, status = CodeExtractor.extract_code(content, task)
-
-        # Save the code
-        CodeExtractor.save_code(code, prediction_path, task, model, seed)
+            if self.mode == "folder":
+                # Save the code
+                CodeExtractor.save_code(code, prediction_path, task, model, seed)
+            else:
+                code_filename = f"{task}_{model}_{seed}.cpp"
+                self.code_records.setdefault(problem_id, {})[code_filename] = code or ""
+                raw_filename = f"{task}_{model}_{seed}.json"
+                self.raw_records.setdefault(problem_id, {})[raw_filename] = raw_response
 
         # Update solutions and stats
         solutions[task].append(code if code else "")
         self.extraction_stats.record(status)
 
         # Print warnings
-        if status == 'empty':
+        if status == 'failed':
+            print(f"No valid response for {task} seed {seed}")
+        elif status == 'empty':
             print(f"Empty code block found for {task} seed {seed}")
         elif status == 'not_found':
             print(f"No code block found for {task} seed {seed}")
         elif code and len(code.split('\n')) < 5:
             print(f"Code block too short for {task} seed {seed}")
+
+    @staticmethod
+    def _response_to_json(response: Any) -> Any:
+        """Convert API response objects to JSON-serializable payloads."""
+        if response is None:
+            return None
+        try:
+            if hasattr(response, "model_dump"):
+                return response.model_dump()
+            if hasattr(response, "model_dump_json"):
+                return json.loads(response.model_dump_json())
+            if hasattr(response, "to_dict"):
+                return response.to_dict()
+            if isinstance(response, dict):
+                return response
+            return json.loads(json.dumps(response, default=str))
+        except Exception as exc:
+            return {"error": f"Failed to serialize response: {exc}"}
+
+    @staticmethod
+    def _extract_seed_from_filename(filename: str) -> int | None:
+        """Extract seed number from filenames like task_model_seed.ext."""
+        try:
+            base = Path(filename).stem
+            seed_str = base.rsplit("_", 1)[-1]
+            return int(seed_str)
+        except (ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _task_from_problem_id(problem_id: str) -> str:
+        parts = problem_id.split("-")
+        if len(parts) >= 4:
+            return "-".join(parts[3:])
+        return problem_id
+
+    def _load_existing_json_predictions(self, solutions: Dict[str, List[str]]) -> set[tuple[str, int]]:
+        """
+        Load existing JSON predictions when running in json mode to reuse results.
+
+        Returns a set of keys (problem_id, seed) already present.
+        """
+        keys: set[tuple[str, int]] = set()
+        codes_path = self.json_output_dir / f"{self.model_name}_code.json"
+        raw_path = self.json_output_dir / f"{self.model_name}_raw.json"
+
+        if codes_path.exists():
+            try:
+                with codes_path.open("r", encoding="utf-8") as f:
+                    self.code_records = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self.code_records = {}
+
+        if raw_path.exists():
+            try:
+                with raw_path.open("r", encoding="utf-8") as f:
+                    self.raw_records = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self.raw_records = {}
+
+        for problem_id, files in self.code_records.items():
+            for filename, code in files.items():
+                seed = self._extract_seed_from_filename(filename)
+                if seed is not None:
+                    keys.add((problem_id, seed))
+                task = self._task_from_problem_id(problem_id)
+                solutions.setdefault(task, []).append(code or "")
+                self.extraction_stats.record("success")
+
+        return keys
+
+    def _write_json_predictions(self) -> None:
+        """Persist collected predictions as JSON when running in JSON mode."""
+        self.json_output_dir.mkdir(parents=True, exist_ok=True)
+        codes_path = self.json_output_dir / f"{self.model_name}_code.json"
+        raw_path = self.json_output_dir / f"{self.model_name}_raw.json"
+
+        with codes_path.open("w", encoding="utf-8") as codes_file:
+            json.dump(self.code_records, codes_file, ensure_ascii=False, separators=(",", ":"))
+
+        with raw_path.open("w", encoding="utf-8") as raw_file:
+            json.dump(self.raw_records, raw_file, ensure_ascii=False, separators=(",", ":"))
+
+        print(f"Wrote JSON code predictions to {codes_path}")
+        print(f"Wrote JSON raw responses to {raw_path}")
     
     def run_pipeline(self):
         """Run the complete evaluation pipeline."""
@@ -324,10 +463,14 @@ class IoIEvaluation:
 
 def main():
     """Main entry point for the script."""
-    parser = argparse.ArgumentParser(description='Code Generation and Evaluation Pipeline')
-    parser.add_argument('--model', type=str, required=True, help='Model name or API endpoint')
-    parser.add_argument("--competitions", nargs="+", default=["IOI"], 
-                        help="List of competitions to evaluate (e.g., IOI, CEOI)")
+    parser = argparse.ArgumentParser(description="Code Generation and Evaluation Pipeline")
+    parser.add_argument("--model", type=str, required=True, help="Model name or API endpoint")
+    parser.add_argument(
+        "--competitions",
+        nargs="+",
+        default=["LiveOIBench"],
+        help="List of competitions to evaluate (e.g., LiveOIBench, CEOI)",
+    )
     parser.add_argument("--years", nargs="+", default=["2024"], 
                         help="List of years to evaluate")
     parser.add_argument("--rounds", nargs="+", default=None, 
@@ -339,6 +482,13 @@ def main():
     parser.add_argument('--parse_dir', type=str, default=DEFAULT_PARSE_DIR, help='Directory for parsed problems')
     parser.add_argument('--evaluation_dir', type=str, default=DEFAULT_EVAL_DIR, help='Output directory for results')
     parser.add_argument('--prediction_dir', type=str, default=DEFAULT_PREDICTION_DIR, help='Output directory for predictions')
+    parser.add_argument(
+        '--mode',
+        type=str,
+        choices=["folder", "json"],
+        default="folder",
+        help='Output mode: "folder" writes raw/codes to the prediction directory, "json" writes JSONL summaries.',
+    )
     parser.add_argument('--seeds', type=int, default=5, help='Number of seeds to use for each problem')
     parser.add_argument('--vllm', action='store_true', help='Use VLLM model for code generation')
     parser.add_argument('--rerun', action='store_true', help='Whether to rerun the pipeline')
@@ -354,7 +504,7 @@ def main():
     args = parser.parse_args()
 
     
-    pipeline = IoIEvaluation(
+    pipeline = LiveOIBenchEvaluation(
         model_name=args.model,
         competitions=args.competitions,
         years=args.years,
@@ -373,7 +523,8 @@ def main():
         requests_per_minute=args.requests_per_minute,
         sequential=args.sequential,
         reparse=args.reparse,
-        openai_client=args.openai_client
+        openai_client=args.openai_client,
+        mode=args.mode,
     )
     
     pipeline.run_pipeline()

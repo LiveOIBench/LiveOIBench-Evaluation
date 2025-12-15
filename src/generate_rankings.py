@@ -31,14 +31,16 @@ import pandas as pd
 
 
 # Default paths (can be overridden by environment variables or CLI args)
-DEFAULT_SUBMISSION_RESULTS_DIR = os.getenv("LIVEOIBENCH_SUBMISSION_RESULTS_DIR", "./evaluation/submission_results")
-DEFAULT_PROBLEM_RESULTS_DIR = os.getenv("LIVEOIBENCH_PROBLEM_RESULTS_DIR", "./evaluation/problem_results")
-DEFAULT_CONTEST_RESULTS_DIR = os.getenv("LIVEOIBENCH_CONTEST_RESULTS_DIR", "./evaluation/contest_results")
-DEFAULT_FINAL_RESULTS_FILE = os.getenv("LIVEOIBENCH_FINAL_RESULTS", "./evaluation/final_results.csv")
-DEFAULT_CONTESTANT_PARQUET = os.getenv("LIVEOIBENCH_CONTESTANT_PARQUET", "./data/contest_results.parquet")
-DEFAULT_PROBLEMS_PARQUET = os.getenv("LIVEOIBENCH_PROBLEMS_PARQUET", "./data/liveoibench_v1.parquet")
+LIVEOIBENCH_ROOT = os.getenv("LIVEOIBENCH_ROOT")
+LIVEOIBENCH_EVALUATION_DIR = os.getenv("LIVEOIBENCH_EVALUATION_DIR")
+DEFAULT_SUBMISSION_RESULTS_DIR = os.path.join(LIVEOIBENCH_EVALUATION_DIR, "submission_results")
+DEFAULT_PROBLEM_RESULTS_DIR = os.path.join(LIVEOIBENCH_EVALUATION_DIR, "problem_results")
+DEFAULT_CONTEST_RESULTS_DIR = os.path.join(LIVEOIBENCH_EVALUATION_DIR, "contest_results")
+DEFAULT_FINAL_RESULTS_FILE = os.path.join(LIVEOIBENCH_EVALUATION_DIR, "final_results.csv")
+DEFAULT_CONTESTANT_PARQUET = os.path.join(LIVEOIBENCH_ROOT, "parquet_files", "contestants", "data", "contest_results.parquet")
+DEFAULT_PROBLEMS_PARQUET = os.path.join(LIVEOIBENCH_ROOT, "parquet_files", "problems", "data", "liveoibench_v1.parquet")
 
-USACO_INFO_ROOT = os.getenv("LIVEOIBENCH_USACO_INFO_ROOT", "./data/USACO")
+USACO_INFO_ROOT = os.path.join(LIVEOIBENCH_ROOT, "data", "USACO")
 
 # Columns that should never be treated as task scores when parsing human results
 NON_TASK_COLUMNS = {
@@ -898,7 +900,32 @@ def load_all_contest_results(contest_results_dir: str) -> Dict[str, Dict[str, An
     return results
 
 
-def generate_final_results_csv(contest_results_dir: str, final_results_file: str) -> None:
+def _mean_or_none(values: List[Optional[float]]) -> Optional[float]:
+    valid = [v for v in values if v is not None and not pd.isna(v)]
+    if not valid:
+        return None
+    return float(np.mean(valid))
+
+
+def _aggregate_metric(per_contest: Dict[str, Dict[str, Any]], key: str, aggregation_level: str) -> Optional[float]:
+    if aggregation_level == "contest":
+        return _mean_or_none([contest.get(key) for contest in per_contest.values()])
+
+    grouped: Dict[str, List[Optional[float]]] = defaultdict(list)
+    for contest_id, contest in per_contest.items():
+        competition, _, _ = parse_contest_parts(contest_id)
+        grouped[competition].append(contest.get(key))
+
+    competition_means: List[Optional[float]] = []
+    for values in grouped.values():
+        comp_mean = _mean_or_none(values)
+        if comp_mean is not None:
+            competition_means.append(comp_mean)
+
+    return _mean_or_none(competition_means)
+
+
+def generate_final_results_csv(contest_results_dir: str, final_results_file: str, aggregation_level: str = "competition") -> None:
     """Stage 3: Generate final results CSV (global rankings)."""
     contest_results = load_all_contest_results(contest_results_dir)
 
@@ -934,16 +961,21 @@ def generate_final_results_csv(contest_results_dir: str, final_results_file: str
         # or calculate based on problem results if available
         total_tasks = 0  # Placeholder
 
+        aggregated_relative = _aggregate_metric(per_contest, "relative_score", aggregation_level)
+        aggregated_percentile = _aggregate_metric(per_contest, "human_percentile", aggregation_level)
+        aggregated_codeforces = _aggregate_metric(per_contest, "codeforces_elo", aggregation_level)
+
         row = {
             "Model": model,
             "Total Score": round_or_none(total_score),
-            "Global Relative Score (%)": overall.get("relative_score"),
+            "Global Relative Score (%)": round_or_none(aggregated_relative),
             "Pass Rate (%)": overall.get("pass_rate"),
+            "Codeforces Elo": round_or_none(aggregated_codeforces),
             "Gold Medals": overall.get("gold_count", 0),
             "Silver Medals": overall.get("silver_count", 0),
             "Bronze Medals": overall.get("bronze_count", 0),
             "Total Medals": overall.get("any_medal_count", 0),
-            "Avg Human Percentile": overall.get("human_percentile"),
+            "Avg Human Percentile": round_or_none(aggregated_percentile),
             "Competition Count": competition_count,
             "Contest Count": contest_count,
             "Total Tasks": total_tasks,
@@ -962,7 +994,7 @@ def generate_final_results_csv(contest_results_dir: str, final_results_file: str
 
     fieldnames = [
         "Model", "Total Score", "Global Relative Score (%)", "Pass Rate (%)",
-        "Gold Medals", "Silver Medals", "Bronze Medals", "Total Medals",
+        "Codeforces Elo", "Gold Medals", "Silver Medals", "Bronze Medals", "Total Medals",
         "Avg Human Percentile", "Competition Count", "Contest Count",
         "Total Tasks", "Global Rank"
     ]
@@ -1033,6 +1065,13 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help="Which stage to run (problem, contest, final, or all)",
     )
+    parser.add_argument(
+        "--aggregation-level",
+        type=str,
+        choices=["competition", "contest"],
+        default="competition",
+        help="How to aggregate relative scores, Codeforces Elo, and human percentile in the final CSV.",
+    )
     return parser.parse_args()
 
 
@@ -1077,7 +1116,7 @@ def main() -> None:
         print("\n" + "=" * 80)
         print("Stage 3: Generating final results CSV")
         print("=" * 80)
-        generate_final_results_csv(args.contest_results_dir, args.final_results_file)
+        generate_final_results_csv(args.contest_results_dir, args.final_results_file, args.aggregation_level)
 
     print("\n" + "=" * 80)
     print("Done!")

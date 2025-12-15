@@ -13,123 +13,130 @@ This Github Repo contains the evaluation toolkit for testing LLMs' solutions aga
 
 ### Prerequisites
 
-- Python 3.9+
-- `g++` compiler (for compiling C++ solutions and checkers)
-- (Optional) `vllm` for serving local models
+- Python **3.9+**
+- `g++` (required for compiling C++ solutions and checkers)
+- Linux environment (**strongly recommended**)
+- *(Optional)* [`vllm`](https://github.com/vllm-project/vllm) for serving local models
 
 ### Setup
 
-1. Clone the repository:
 ```bash
 git clone https://github.com/your-org/LiveOIBench-Evaluation.git
 cd LiveOIBench-Evaluation
-```
-
-2. Install dependencies:
-```bash
 pip install -r requirements.txt
 ```
 
-3. Configure environment variables:
-```bash
-source scripts/set_liveoibench_env.sh
-```
+> ⚠️ This repo is developed and tested on Linux. macOS may work but is not officially supported.
 
-We recommend running the evaluation on Linux since this repo is developed on Linux. 
+---
 
 ## Data Setup
 
 ### Download from HuggingFace
 
-The benchmark data is available on HuggingFace:
+The benchmark is hosted across three HuggingFace datasets:
 
-- **Problems & Metadata**: [LiveOIBench/LiveOIBench](https://huggingface.co/datasets/LiveOIBench/LiveOIBench)
-- **Test Cases**: [LiveOIBench/LiveOIBench_tests](https://huggingface.co/datasets/LiveOIBench/LiveOIBench_tests)
-- **Human Contestant Data**: [LiveOIBench/LiveOIBench_contestants](https://huggingface.co/datasets/LiveOIBench/LiveOIBench_contestants)
+- **Problems & Metadata**  
+  https://huggingface.co/datasets/LiveOIBench/LiveOIBench
 
-### Reconstruct Dataset
+- **Official Test Cases**  
+  https://huggingface.co/datasets/LiveOIBench/LiveOIBench_tests
 
-Use the provided script to download and reconstruct the dataset:
+- **Human Contestant Data**  
+  https://huggingface.co/datasets/LiveOIBench/LiveOIBench_contestants
+
+### Reconstruct the Dataset
 
 ```bash
+export LIVEOIBENCH_ROOT=<path_to_store_data_and_results>
+
 python src/process_dataset.py \
-  --output-dir ./data \
-  --stage all
+  --download-dir "${LIVEOIBENCH_ROOT}/parquet_files" \
+  --output-dir "${LIVEOIBENCH_ROOT}/data"
 ```
+
+⏳ **Note:**  
+Reconstruction may take significant time and disk space.  
+Total test cases exceed **30 GB**.
+
+---
 
 ## Quick Start
 
-### Judge a Single Solution
+### 1. Generate Solutions with an LLM
+
+#### Start a local vLLM server
 
 ```bash
-python src/run_judge.py \
-  --competition IOI \
-  --year 2024 \
-  --round contest \
-  --task nile \
-  --solution_file ./solutions/my_solution.cpp \
-  --problem_folder ./data \
-  --evaluation_folder ./evaluation \
-  --verbose
+bash scripts/start_vllm.sh
 ```
 
-### Generate Solutions with LLM
+#### Generate model solutions
 
 ```bash
-python src/run_ioi.py \
-  --model gpt-4o \
-  --competitions IOI \
-  --years 2024 \
-  --problems_dir ./data \
-  --prediction_dir ./predictions \
-  --seeds 8
+bash scripts/run_model.sh
 ```
 
-### Generate Rankings
+Outputs will be saved to:
+
+```
+${LIVEOIBENCH_ROOT}/predictions/<model>/
+  ├── <model>_code.json
+  └── <model>_raw.json
+```
+
+---
+
+### 2. Judge Model Solutions
+
+Run official judging against test cases:
 
 ```bash
-python src/generate_rankings.py \
-  --submission-results-dir ./evaluation/submission_results \
-  --problem-results-dir ./evaluation/problem_results \
-  --contest-results-dir ./evaluation/contest_results \
-  --final-results-file ./evaluation/final_results.csv \
-  --stage all
+bash scripts/run_model_solutions.sh
 ```
 
-## Configuration
+Results will be saved to:
 
-### Environment Variables
+```
+${LIVEOIBENCH_ROOT}/evaluation/submission_results/<model>/<model>_<timestamp>.json
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LIVEOIBENCH_DATA_DIR` | Problem data directory | `./data` |
-| `LIVEOIBENCH_EVAL_RESOURCE_DIR` | Evaluation resource root | `./` |
-| `LIVEOIBENCH_PREDICTIONS_DIR` | LLM predictions storage | `./predictions` |
-| `LIVEOIBENCH_SUBMISSION_RESULTS_DIR` | Submission results | `./evaluation/submission_results` |
-| `LIVEOIBENCH_PROBLEM_RESULTS_DIR` | Problem-level results | `./evaluation/problem_results` |
-| `LIVEOIBENCH_CONTEST_RESULTS_DIR` | Contest-level results | `./evaluation/contest_results` |
-| `LIVEOIBENCH_FINAL_RESULTS` | Final rankings CSV | `./evaluation/final_results.csv` |
-| `LIVEOIBENCH_CONTESTANT_PARQUET` | Human contestant data | `./data/contest_results.parquet` |
-| `LIVEOIBENCH_PROBLEMS_PARQUET` | Problems metadata | `./data/liveoibench_v1.parquet` |
-| `TESTLIB_PATH` | Path to testlib.h | `./evaluation/testlib.h` |
+---
 
-You can set these manually or use the provided script:
+### 3. Compare Against Human Contestants
+
+Compute rankings across:
+- Individual contests
+- Olympiad competitions
+- Overall benchmark performance
 
 ```bash
-# Use default paths (relative to project root)
-source scripts/set_liveoibench_env.sh
-
-# Or override specific paths
-export LIVEOIBENCH_DATA_DIR="/path/to/your/data"
-source scripts/set_liveoibench_env.sh
+bash scripts/generate_all_ranking.sh
 ```
-## Submission
 
-To submit your result, please share your submission result file with Kai[zkjzou@umich.edu].
+This generates CSV summaries with:
+- Contest-level scores
+- Relative human percentile
+- Aggregate benchmark results
+
+---
+
+## Submitting Results
+
+To submit results to the LiveOIBench leaderboard:
+
+📩 Email your model’s  
+`<model>_code.json`  
+to **Kai** at **zkjzou@umich.edu**
+
+---
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is released under the **Apache License 2.0**.  
+See the [LICENSE](LICENSE) file for details.
+
+---
 
 ## Citation
 
@@ -145,8 +152,3 @@ If you use LiveOIBench in your research, please cite:
   doi={10.48550/arXiv.2510.09595}
 }
 ```
-
-## Acknowledgments
-
-- [testlib.h](https://github.com/MikeMirzayanov/testlib) for checker support
-- The competitive programming community for problem data

@@ -1,25 +1,9 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-DATA_DIR="${LIVEOIBENCH_DATA_DIR}"
-EVAL_DIR="${LIVEOIBENCH_EVAL_RESOURCE_DIR}"
-RESULTS_DIR="${LIVEOIBENCH_RESULTS_DIR}"
-PREDICTIONS_DIR="${LIVEOIBENCH_PREDICTIONS_DIR}"
-CACHE_DIR="${LIVEOIBENCH_CACHE_DIR}"
-MODEL_NAME="${LIVEOIBENCH_MODEL_NAME:-all}"
-
-LLM_SOLUTIONS_DIR="${PREDICTIONS_DIR}"
-# if [[ -d "${LLM_SOLUTIONS_DIR}/predictions" ]]; then
-#   LLM_SOLUTIONS_DIR="${LLM_SOLUTIONS_DIR}/predictions"
-# fi
-
-if [[ ! -d "${LLM_SOLUTIONS_DIR}" ]]; then
-  echo "Error: LLM solutions directory '${LLM_SOLUTIONS_DIR}' not found." >&2
-  exit 1
-fi
-
-RUN_TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
-RESULTS_JSON="${RESULTS_DIR}/${MODEL_NAME}/${MODEL_NAME}_${RUN_TIMESTAMP}.json"
+DATA_DIR="${LIVEOIBENCH_ROOT}/data"
+EVAL_DIR="${LIVEOIBENCH_ROOT}/evaluation"
+RESULTS_DIR="${EVAL_DIR}/submission_results"
+LLM_SOLUTIONS_DIR="${LIVEOIBENCH_ROOT}/predictions"
+CACHE_DIR="${EVAL_DIR}/cache"
+MODEL_NAME="all"
 
 python src/run_judge.py batch \
   --competitions IOI BOI CEOI CCO COCI EGOI EJOI IATI OOI USACO RMI APIO JOI NOINordic \
@@ -34,4 +18,3 @@ python src/run_judge.py batch \
   --stop_on_failure \
   --workers 6 \
   --max_solutions 8
-#IOI BOI CEOI CCO COCI EGOI EJOI IATI OOI USACO RMI APIO JOI NOINordic
