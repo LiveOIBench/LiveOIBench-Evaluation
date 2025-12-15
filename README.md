@@ -1,6 +1,6 @@
 <table>
 <tr>
-<td><img src="assets/liveoibench_logo.png" alt="WEB-SHEPHERD Logo" width="150"/></td>
+<td><img src="assets/liveoibench_logo.png" alt="LiveOIBench Logo" width="300"/></td>
 <td><h1 style="margin: 0;">LiveOIBench: Can Large Language Models Outperform Human Contestants in Informatics Olympiads?</h1></td>
 </tr>
 </table>
