@@ -26,7 +26,7 @@ This GitHub repo contains the evaluation toolkit for testing LLMs' solutions aga
 ### Setup
 
 ```bash
-git clone https://github.com/your-org/LiveOIBench-Evaluation.git
+git clone https://github.com/LiveOIBench/LiveOIBench-Evaluation.git
 cd LiveOIBench-Evaluation
 pip install -r requirements.txt
 ```
